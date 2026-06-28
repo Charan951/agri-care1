@@ -239,9 +239,9 @@ function Home() {
         <SectionHeader eyebrow="Why AgriSphere" title="Built like enterprise software. Priced for farmers." align="center" />
         <div className="mx-auto mt-10 grid max-w-5xl gap-5 md:grid-cols-3">
           {[
-            { icon: ShieldCheck, title: "Bank-grade security", body: "ISO 27001 and SOC 2 Type II controls protect every farm record." },
-            { icon: Microscope, title: "Real research", body: "Models validated with ICAR and 4 state agricultural universities." },
-            { icon: GraduationCap, title: "Always learning", body: "Free training in 10 languages — over 250 hours of content." },
+            { icon: ShieldCheck, title: "Bank-grade security", description: "ISO 27001 and SOC 2 Type II controls protect every farm record." },
+            { icon: Microscope, title: "Real research", description: "Models validated with ICAR and 4 state agricultural universities." },
+            { icon: GraduationCap, title: "Always learning", description: "Free training in 10 languages — over 250 hours of content." },
           ].map((f) => <FeatureCard key={f.title} {...f} />)}
         </div>
       </Section>
