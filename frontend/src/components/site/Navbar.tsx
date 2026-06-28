@@ -27,6 +27,17 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   const handleLogout = async () => {
     await logout();
     toast.success("Signed out successfully.");
@@ -61,8 +72,8 @@ export function Navbar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            {item.children.map((child) => (
-              <DropdownMenuItem key={child.to} asChild>
+            {item.children.map((child, idx) => (
+              <DropdownMenuItem key={`${child.to}-${idx}`} asChild>
                 <Link to={child.to!} className="cursor-pointer">
                   {child.label}
                 </Link>
@@ -82,38 +93,6 @@ export function Navbar() {
               ? "text-foreground"
               : "text-muted-foreground hover:text-foreground"
           )}
-        >
-          {item.label}
-        </Link>
-      );
-    }
-    return null;
-  };
-
-  const MobileNavItem = ({ item }: { item: NavItem }) => {
-    if (item.children) {
-      return (
-        <div className="flex flex-col gap-1">
-          <div className="px-3 py-2 text-sm font-semibold text-foreground">
-            {item.label}
-          </div>
-          {item.children.map((child) => (
-            <Link
-              key={child.to}
-              to={child.to!}
-              className="rounded-md px-6 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              {child.label}
-            </Link>
-          ))}
-        </div>
-      );
-    }
-    if (item.to) {
-      return (
-        <Link
-          to={item.to}
-          className="rounded-md px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
         >
           {item.label}
         </Link>
@@ -215,10 +194,10 @@ export function Navbar() {
       </div>
 
       {open && (
-        <div className="border-t border-border bg-background lg:hidden">
+        <div className="border-t border-border bg-background lg:hidden max-h-[calc(100vh-4.5rem)] overflow-y-auto">
           <div className="container-page flex flex-col gap-1 py-3">
             {NAV_LINKS.map((l, i) => (
-              <MobileNavItem key={i} item={l} />
+              <MobileNavItem key={i} item={l} pathname={pathname} />
             ))}
             
             {isAuthenticated ? (
@@ -278,4 +257,84 @@ export function Navbar() {
       )}
     </header>
   );
+}
+
+function MobileNavItem({ item, pathname }: { item: NavItem; pathname: string }) {
+  const hasChildren = !!item.children;
+  const isChildActive = hasChildren && item.children!.some(
+    (child) => child.to && (pathname === child.to || pathname.startsWith(child.to))
+  );
+  const [isOpen, setIsOpen] = useState(isChildActive);
+
+  if (item.children) {
+    return (
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className={cn(
+            "flex w-full items-center justify-between rounded-md px-3 py-2.5 text-sm font-medium transition-colors text-left",
+            isChildActive
+              ? "text-foreground bg-muted/40"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          )}
+        >
+          <span>{item.label}</span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 transition-transform duration-200 text-muted-foreground/70",
+              isOpen && "rotate-180"
+            )}
+          />
+        </button>
+        <div
+          className={cn(
+            "grid transition-all duration-200 ease-in-out",
+            isOpen ? "grid-rows-[1fr] opacity-100 mt-1 mb-2" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="pl-4 border-l border-border/80 ml-4 flex flex-col gap-1 py-1">
+              {item.children.map((child, idx) => {
+                const isCurrent = pathname === child.to;
+                return (
+                  <Link
+                    key={`${child.to}-${idx}`}
+                    to={child.to!}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm transition-colors",
+                      isCurrent
+                        ? "text-brand font-medium bg-brand/5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                    )}
+                  >
+                    {child.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (item.to) {
+    const isCurrent = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
+    return (
+      <Link
+        to={item.to}
+        className={cn(
+          "rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+          isCurrent
+            ? "text-foreground bg-muted/60"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+        )}
+      >
+        {item.label}
+      </Link>
+    );
+  }
+
+  return null;
 }
