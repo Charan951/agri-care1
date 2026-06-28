@@ -12,19 +12,23 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VideosRouteImport } from './routes/videos'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SuccessStoriesRouteImport } from './routes/success-stories'
+import { Route as SpecialistRouteImport } from './routes/specialist'
 import { Route as ServicesRouteImport } from './routes/services'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as MerchantRouteImport } from './routes/merchant'
 import { Route as MarketplaceRouteImport } from './routes/marketplace'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as GalleryRouteImport } from './routes/gallery'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as DownloadAppRouteImport } from './routes/download-app'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as BlogRouteImport } from './routes/blog'
 import { Route as AiDiseaseDetectionRouteImport } from './routes/ai-disease-detection'
 import { Route as AgricultureSpecialistsRouteImport } from './routes/agriculture-specialists'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as IndexRouteImport } from './routes/index'
@@ -47,6 +51,11 @@ const SuccessStoriesRoute = SuccessStoriesRouteImport.update({
   path: '/success-stories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SpecialistRoute = SpecialistRouteImport.update({
+  id: '/specialist',
+  path: '/specialist',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ServicesRoute = ServicesRouteImport.update({
   id: '/services',
   path: '/services',
@@ -60,6 +69,11 @@ const RegisterRoute = RegisterRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MerchantRoute = MerchantRouteImport.update({
+  id: '/merchant',
+  path: '/merchant',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MarketplaceRoute = MarketplaceRouteImport.update({
@@ -92,6 +106,11 @@ const DownloadAppRoute = DownloadAppRouteImport.update({
   path: '/download-app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
@@ -110,6 +129,11 @@ const AiDiseaseDetectionRoute = AiDiseaseDetectionRouteImport.update({
 const AgricultureSpecialistsRoute = AgricultureSpecialistsRouteImport.update({
   id: '/agriculture-specialists',
   path: '/agriculture-specialists',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -147,19 +171,23 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/agriculture-specialists': typeof AgricultureSpecialistsRoute
   '/ai-disease-detection': typeof AiDiseaseDetectionRoute
   '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
+  '/dashboard': typeof DashboardRoute
   '/download-app': typeof DownloadAppRoute
   '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
   '/marketplace': typeof MarketplaceRouteWithChildren
+  '/merchant': typeof MerchantRoute
   '/privacy': typeof PrivacyRoute
   '/register': typeof RegisterRoute
   '/services': typeof ServicesRoute
+  '/specialist': typeof SpecialistRoute
   '/success-stories': typeof SuccessStoriesRoute
   '/terms': typeof TermsRoute
   '/videos': typeof VideosRoute
@@ -171,18 +199,22 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/agriculture-specialists': typeof AgricultureSpecialistsRoute
   '/ai-disease-detection': typeof AiDiseaseDetectionRoute
   '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
+  '/dashboard': typeof DashboardRoute
   '/download-app': typeof DownloadAppRoute
   '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
+  '/merchant': typeof MerchantRoute
   '/privacy': typeof PrivacyRoute
   '/register': typeof RegisterRoute
   '/services': typeof ServicesRoute
+  '/specialist': typeof SpecialistRoute
   '/success-stories': typeof SuccessStoriesRoute
   '/terms': typeof TermsRoute
   '/videos': typeof VideosRoute
@@ -195,19 +227,23 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/$': typeof SplatRoute
   '/about': typeof AboutRoute
+  '/admin': typeof AdminRoute
   '/agriculture-specialists': typeof AgricultureSpecialistsRoute
   '/ai-disease-detection': typeof AiDiseaseDetectionRoute
   '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
+  '/dashboard': typeof DashboardRoute
   '/download-app': typeof DownloadAppRoute
   '/faq': typeof FaqRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/gallery': typeof GalleryRoute
   '/login': typeof LoginRoute
   '/marketplace': typeof MarketplaceRouteWithChildren
+  '/merchant': typeof MerchantRoute
   '/privacy': typeof PrivacyRoute
   '/register': typeof RegisterRoute
   '/services': typeof ServicesRoute
+  '/specialist': typeof SpecialistRoute
   '/success-stories': typeof SuccessStoriesRoute
   '/terms': typeof TermsRoute
   '/videos': typeof VideosRoute
@@ -221,19 +257,23 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/about'
+    | '/admin'
     | '/agriculture-specialists'
     | '/ai-disease-detection'
     | '/blog'
     | '/contact'
+    | '/dashboard'
     | '/download-app'
     | '/faq'
     | '/forgot-password'
     | '/gallery'
     | '/login'
     | '/marketplace'
+    | '/merchant'
     | '/privacy'
     | '/register'
     | '/services'
+    | '/specialist'
     | '/success-stories'
     | '/terms'
     | '/videos'
@@ -245,18 +285,22 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/about'
+    | '/admin'
     | '/agriculture-specialists'
     | '/ai-disease-detection'
     | '/blog'
     | '/contact'
+    | '/dashboard'
     | '/download-app'
     | '/faq'
     | '/forgot-password'
     | '/gallery'
     | '/login'
+    | '/merchant'
     | '/privacy'
     | '/register'
     | '/services'
+    | '/specialist'
     | '/success-stories'
     | '/terms'
     | '/videos'
@@ -268,19 +312,23 @@ export interface FileRouteTypes {
     | '/'
     | '/$'
     | '/about'
+    | '/admin'
     | '/agriculture-specialists'
     | '/ai-disease-detection'
     | '/blog'
     | '/contact'
+    | '/dashboard'
     | '/download-app'
     | '/faq'
     | '/forgot-password'
     | '/gallery'
     | '/login'
     | '/marketplace'
+    | '/merchant'
     | '/privacy'
     | '/register'
     | '/services'
+    | '/specialist'
     | '/success-stories'
     | '/terms'
     | '/videos'
@@ -293,19 +341,23 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SplatRoute: typeof SplatRoute
   AboutRoute: typeof AboutRoute
+  AdminRoute: typeof AdminRoute
   AgricultureSpecialistsRoute: typeof AgricultureSpecialistsRoute
   AiDiseaseDetectionRoute: typeof AiDiseaseDetectionRoute
   BlogRoute: typeof BlogRouteWithChildren
   ContactRoute: typeof ContactRoute
+  DashboardRoute: typeof DashboardRoute
   DownloadAppRoute: typeof DownloadAppRoute
   FaqRoute: typeof FaqRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GalleryRoute: typeof GalleryRoute
   LoginRoute: typeof LoginRoute
   MarketplaceRoute: typeof MarketplaceRouteWithChildren
+  MerchantRoute: typeof MerchantRoute
   PrivacyRoute: typeof PrivacyRoute
   RegisterRoute: typeof RegisterRoute
   ServicesRoute: typeof ServicesRoute
+  SpecialistRoute: typeof SpecialistRoute
   SuccessStoriesRoute: typeof SuccessStoriesRoute
   TermsRoute: typeof TermsRoute
   VideosRoute: typeof VideosRoute
@@ -334,6 +386,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SuccessStoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/specialist': {
+      id: '/specialist'
+      path: '/specialist'
+      fullPath: '/specialist'
+      preLoaderRoute: typeof SpecialistRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/services': {
       id: '/services'
       path: '/services'
@@ -353,6 +412,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/merchant': {
+      id: '/merchant'
+      path: '/merchant'
+      fullPath: '/merchant'
+      preLoaderRoute: typeof MerchantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/marketplace': {
@@ -397,6 +463,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DownloadAppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/contact': {
       id: '/contact'
       path: '/contact'
@@ -423,6 +496,13 @@ declare module '@tanstack/react-router' {
       path: '/agriculture-specialists'
       fullPath: '/agriculture-specialists'
       preLoaderRoute: typeof AgricultureSpecialistsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -498,19 +578,23 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SplatRoute: SplatRoute,
   AboutRoute: AboutRoute,
+  AdminRoute: AdminRoute,
   AgricultureSpecialistsRoute: AgricultureSpecialistsRoute,
   AiDiseaseDetectionRoute: AiDiseaseDetectionRoute,
   BlogRoute: BlogRouteWithChildren,
   ContactRoute: ContactRoute,
+  DashboardRoute: DashboardRoute,
   DownloadAppRoute: DownloadAppRoute,
   FaqRoute: FaqRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GalleryRoute: GalleryRoute,
   LoginRoute: LoginRoute,
   MarketplaceRoute: MarketplaceRouteWithChildren,
+  MerchantRoute: MerchantRoute,
   PrivacyRoute: PrivacyRoute,
   RegisterRoute: RegisterRoute,
   ServicesRoute: ServicesRoute,
+  SpecialistRoute: SpecialistRoute,
   SuccessStoriesRoute: SuccessStoriesRoute,
   TermsRoute: TermsRoute,
   VideosRoute: VideosRoute,
@@ -518,12 +602,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

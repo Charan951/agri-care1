@@ -1,11 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
 import { Star, Truck, ShieldCheck, X } from "lucide-react";
 import { PageHero } from "@/components/site/PageHero";
 import { Section, SectionHeader } from "@/components/site/Section";
 import { CTA } from "@/components/site/CTA";
 import { IMG } from "@/lib/site";
+import { apiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/marketplace/")({
+  validateSearch: (search: Record<string, unknown>): { category?: string } => ({
+    category: search.category as string | undefined
+  }),
   head: () => ({
     meta: [
       { title: "Marketplace — AgriCare" },
@@ -39,10 +44,41 @@ const PRODUCTS = [
 function Marketplace() {
   const search = Route.useSearch();
   const selectedCategory = search.category as string | undefined;
-  
-  const filteredProducts = selectedCategory 
-    ? PRODUCTS.filter(p => p.category === selectedCategory) 
-    : PRODUCTS;
+
+  const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      setLoading(true);
+      try {
+        const url = selectedCategory
+          ? `/api/customer/products?category=${encodeURIComponent(selectedCategory)}`
+          : '/api/customer/products';
+        const res = await apiFetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          // Filter out disabled products
+          const activeProducts = (data.products || []).filter((p: any) => p.isEnabled !== false);
+          const mockFiltered = PRODUCTS.filter(p => !selectedCategory || p.category === selectedCategory);
+          
+          // Combine DB products with mock products, avoiding duplicates by name
+          const merged = [
+            ...activeProducts,
+            ...mockFiltered.filter(p => !activeProducts.some((dp: any) => dp.name.toLowerCase() === p.name.toLowerCase()))
+          ];
+          setProducts(merged);
+        } else {
+          setProducts(PRODUCTS.filter(p => !selectedCategory || p.category === selectedCategory));
+        }
+      } catch (err) {
+        setProducts(PRODUCTS.filter(p => !selectedCategory || p.category === selectedCategory));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProducts();
+  }, [selectedCategory]);
 
   return (
     <>
@@ -58,10 +94,10 @@ function Marketplace() {
         <SectionHeader eyebrow="Categories" title="Shop by category." />
         <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {CATEGORIES.map((c) => (
-            <Link 
-              key={c.name} 
-              to="/marketplace" 
-              search={{ category: c.name }} 
+            <Link
+              key={c.name}
+              to="/marketplace"
+              search={{ category: c.name }}
               className="card-soft card-soft-hover group overflow-hidden"
             >
               <div className="overflow-hidden">
@@ -76,13 +112,13 @@ function Marketplace() {
       <Section className="!pt-0">
         <div className="flex items-end justify-between gap-6">
           <div>
-            <SectionHeader 
-              eyebrow={selectedCategory ? `Category: ${selectedCategory}` : "Featured"} 
-              title={selectedCategory ? `${selectedCategory} Products` : "Top-rated products."} 
+            <SectionHeader
+              eyebrow={selectedCategory ? `Category: ${selectedCategory}` : "Featured"}
+              title={selectedCategory ? `${selectedCategory} Products` : "Top-rated products."}
             />
             {selectedCategory && (
-              <Link 
-                to="/marketplace" 
+              <Link
+                to="/marketplace"
                 className="mt-2 inline-flex items-center gap-1 text-sm text-brand hover:underline"
               >
                 <X className="h-3.5 w-3.5" /> Clear filter
@@ -91,23 +127,37 @@ function Marketplace() {
           </div>
           <Link to="/marketplace" className="hidden text-sm font-semibold text-brand sm:inline">View all →</Link>
         </div>
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {filteredProducts.map((p) => (
-            <Link to="/marketplace/$id" params={{ id: p.id }} key={p.id} className="card-soft card-soft-hover group overflow-hidden">
-              <div className="relative overflow-hidden">
-                <img src={p.img} alt={p.name} className="aspect-[4/3] w-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                <span className="absolute left-3 top-3 rounded-md bg-card px-2 py-1 text-[11px] font-semibold text-brand shadow-soft">{p.badge}</span>
-              </div>
-              <div className="p-5">
-                <h3 className="text-sm font-semibold leading-snug">{p.name}</h3>
-                <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Star className="h-3.5 w-3.5 fill-gold text-gold" /> {p.rating} · Verified
-                </div>
-                <p className="mt-3 text-base font-bold">{p.price}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
+        
+        {loading ? (
+          <div className="flex justify-center items-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand border-t-transparent" />
+          </div>
+        ) : (
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {products.map((p) => {
+              const productId = p._id || p.id;
+              const productImage = p.imageUrl || p.img;
+              const productPrice = typeof p.price === 'number' ? `₹${p.price.toLocaleString("en-IN")}` : p.price;
+              const productBadge = p.badge || (p.stock === 0 ? "Out of Stock" : "Verified");
+
+              return (
+                <Link to="/marketplace/$id" params={{ id: productId }} key={productId} className="card-soft card-soft-hover group overflow-hidden">
+                  <div className="relative overflow-hidden">
+                    <img src={productImage} alt={p.name} className="aspect-[4/3] w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                    <span className="absolute left-3 top-3 rounded-md bg-card px-2 py-1 text-[11px] font-semibold text-brand shadow-soft">{productBadge}</span>
+                  </div>
+                  <div className="p-5">
+                    <h3 className="text-sm font-semibold leading-snug">{p.name}</h3>
+                    <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                      <Star className="h-3.5 w-3.5 fill-gold text-gold" /> {p.rating} · Verified
+                    </div>
+                    <p className="mt-3 text-base font-bold">{productPrice}</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </Section>
 
       <Section className="!pt-0">

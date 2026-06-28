@@ -1,4 +1,4 @@
-import { createRootRoute, Outlet, Link } from '@tanstack/react-router';
+import { createRootRoute, Outlet, Link, useLocation } from '@tanstack/react-router';
 import { Navbar } from '@/components/site/Navbar';
 import { Footer } from '@/components/site/Footer';
 
@@ -19,13 +19,16 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const location = useLocation();
+  const isHideLayout = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/specialist') || location.pathname.startsWith('/merchant');
+
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <Navbar />
+      {!isHideLayout && <Navbar />}
       <main id="main" className="flex-1">
         <Outlet />
       </main>
-      <Footer />
+      {!isHideLayout && <Footer />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Menu, X, Leaf, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NAV_LINKS, NavItem, SITE } from "@/lib/site";
@@ -9,11 +9,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user, isAuthenticated, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -22,6 +26,12 @@ export function Navbar() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  const handleLogout = async () => {
+    await logout();
+    toast.success("Signed out successfully.");
+    navigate({ to: "/" });
+  };
 
   const isActive = (item: NavItem) => {
     if (item.to) {
@@ -134,18 +144,63 @@ export function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-2 lg:flex">
-          <Link
-            to="/login"
-            className="rounded-md px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
-          >
-            Sign in
-          </Link>
-          <Link
-            to="/register"
-            className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90"
-          >
-            Get started
-          </Link>
+          {isAuthenticated ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold hover:bg-muted">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs text-brand-foreground">
+                    {user?.name.charAt(0).toUpperCase()}
+                  </div>
+                  <span>{user?.name}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <div className="px-2.5 py-1.5 text-xs text-muted-foreground border-b border-border mb-1">
+                  Role: <span className="font-semibold text-foreground">{user?.role}</span>
+                </div>
+                {(user?.role === 'ADMIN' || user?.role === 'SUPER_USER') && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="cursor-pointer font-medium">
+                      Admin Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {user?.role === 'FARMER' && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/dashboard" className="cursor-pointer font-medium">
+                      Farmer Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                {user?.role === 'MERCHANT' && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/merchant" className="cursor-pointer font-medium">
+                      Merchant Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-600 font-medium">
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="rounded-md px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/register"
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90"
+              >
+                Get started
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -165,20 +220,59 @@ export function Navbar() {
             {NAV_LINKS.map((l, i) => (
               <MobileNavItem key={i} item={l} />
             ))}
-            <div className="mt-2 flex gap-2 border-t border-border pt-3">
-              <Link
-                to="/login"
-                className="flex-1 rounded-lg border border-border px-4 py-2.5 text-center text-sm font-semibold"
-              >
-                Sign in
-              </Link>
-              <Link
-                to="/register"
-                className="flex-1 rounded-lg bg-brand px-4 py-2.5 text-center text-sm font-semibold text-brand-foreground"
-              >
-                Get started
-              </Link>
-            </div>
+            
+            {isAuthenticated ? (
+              <div className="mt-2 border-t border-border pt-3 space-y-2">
+                <div className="px-3 text-xs text-muted-foreground">
+                  Signed in as <span className="font-semibold text-foreground">{user?.name} ({user?.role})</span>
+                </div>
+                {(user?.role === 'ADMIN' || user?.role === 'SUPER_USER') && (
+                  <Link
+                    to="/admin"
+                    className="block rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                  >
+                    Admin Dashboard
+                  </Link>
+                )}
+                {user?.role === 'FARMER' && (
+                  <Link
+                    to="/dashboard"
+                    className="block rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                  >
+                    Farmer Dashboard
+                  </Link>
+                )}
+                {user?.role === 'MERCHANT' && (
+                  <Link
+                    to="/merchant"
+                    className="block rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                  >
+                    Merchant Dashboard
+                  </Link>
+                )}
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left rounded-md px-3 py-2 text-sm font-medium text-red-600 hover:bg-muted"
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <div className="mt-2 flex gap-2 border-t border-border pt-3">
+                <Link
+                  to="/login"
+                  className="flex-1 rounded-lg border border-border px-4 py-2.5 text-center text-sm font-semibold"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  to="/register"
+                  className="flex-1 rounded-lg bg-brand px-4 py-2.5 text-center text-sm font-semibold text-brand-foreground"
+                >
+                  Get started
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       )}
