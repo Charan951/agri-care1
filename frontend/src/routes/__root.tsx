@@ -1,6 +1,7 @@
 import { createRootRoute, Outlet, Link, useLocation } from '@tanstack/react-router';
 import { Navbar } from '@/components/site/Navbar';
 import { Footer } from '@/components/site/Footer';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -20,13 +21,30 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   const location = useLocation();
-  const isHideLayout = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/specialist') || location.pathname.startsWith('/merchant');
+  const isHideLayout = location.pathname.startsWith('/admin') || 
+                       location.pathname.startsWith('/dashboard') || 
+                       location.pathname.startsWith('/specialist') || 
+                       location.pathname.startsWith('/merchant');
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       {!isHideLayout && <Navbar />}
-      <main id="main" className="flex-1">
-        <Outlet />
+      <main id="main" className="flex-1 overflow-x-hidden relative">
+        {isHideLayout ? (
+          <Outlet />
+        ) : (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
+        )}
       </main>
       {!isHideLayout && <Footer />}
     </div>

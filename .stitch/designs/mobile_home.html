@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>AgriCare Mobile Dashboard</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts: Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "inverse-on-surface": "#eaf1ff",
+                "surface": "#f8f9ff",
+                "secondary": "#006e1c",
+                "tertiary-container": "#8e6700",
+                "surface-container-low": "#eff4ff",
+                "tertiary-fixed-dim": "#fdbc13",
+                "surface-tint": "#1b6d24",
+                "on-error": "#ffffff",
+                "on-tertiary-fixed": "#261900",
+                "surface-container-lowest": "#ffffff",
+                "primary": "#0d631b",
+                "on-primary-container": "#cbffc2",
+                "on-background": "#121c2a",
+                "error-container": "#ffdad6",
+                "surface-container-highest": "#d9e3f6",
+                "on-surface": "#121c2a",
+                "primary-fixed": "#a3f69c",
+                "on-error-container": "#93000a",
+                "inverse-primary": "#88d982",
+                "surface-container-high": "#dee9fc",
+                "surface-dim": "#d0dbed",
+                "error": "#ba1a1a",
+                "primary-fixed-dim": "#88d982",
+                "outline": "#707a6c",
+                "tertiary-fixed": "#ffdea3",
+                "secondary-fixed": "#98f994",
+                "surface-container": "#e6eeff",
+                "on-secondary-fixed-variant": "#005313",
+                "on-primary": "#ffffff",
+                "inverse-surface": "#27313f",
+                "tertiary": "#6f5000",
+                "on-tertiary-container": "#ffefd7",
+                "on-secondary-fixed": "#002204",
+                "on-secondary-container": "#0c7521",
+                "on-tertiary-fixed-variant": "#5d4200",
+                "secondary-container": "#98f994",
+                "on-primary-fixed": "#002204",
+                "primary-container": "#2e7d32",
+                "surface-variant": "#d9e3f6",
+                "on-tertiary": "#ffffff",
+                "on-secondary": "#ffffff",
+                "on-primary-fixed-variant": "#005312",
+                "outline-variant": "#bfcaba",
+                "on-surface-variant": "#40493d",
+                "background": "#f8f9ff",
+                "surface-bright": "#f8f9ff",
+                "secondary-fixed-dim": "#7ddc7a"
+            },
+            "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+            },
+            "spacing": {
+                "margin-mobile": "16px",
+                "stack-md": "16px",
+                "section-gap": "80px",
+                "container-max": "1280px",
+                "stack-sm": "8px",
+                "margin-desktop": "40px",
+                "gutter": "24px",
+                "unit": "8px",
+                "stack-lg": "32px"
+            },
+            "fontFamily": {
+                "body-lg": ["Inter"],
+                "body-md": ["Inter"],
+                "headline-sm": ["Inter"],
+                "label-md": ["Inter"],
+                "headline-lg-mobile": ["Inter"],
+                "headline-lg": ["Inter"],
+                "headline-md": ["Inter"],
+                "label-sm": ["Inter"],
+                "display": ["Inter"]
+            },
+            "fontSize": {
+                "body-lg": ["18px", {"lineHeight": "28px", "letterSpacing": "0em", "fontWeight": "400"}],
+                "body-md": ["16px", {"lineHeight": "26px", "letterSpacing": "0em", "fontWeight": "400"}],
+                "headline-sm": ["24px", {"lineHeight": "32px", "letterSpacing": "0em", "fontWeight": "600"}],
+                "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                "headline-lg-mobile": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                "headline-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                "headline-md": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                "display": ["64px", {"lineHeight": "72px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #f8f9ff;
+            -webkit-tap-highlight-color: transparent;
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom thin borders for that modern corporate look */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+        }
+        .safe-pb {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="text-on-surface">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm">
+<div class="flex justify-between items-center px-margin-mobile h-16 w-full max-w-container-max mx-auto">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A high-quality professional portrait of a senior Indian farmer with a friendly smile, wearing a traditional white cotton shirt, set against a blurred lush green farmland background. The lighting is soft morning sunlight, creating a warm and authoritative AgriTech brand persona." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYe6zvkb6jCo_FjaZW7r4CepB4uU1muyOI0Qjhkgxcq7b7rIhBA7gEDg1ld1bTfsMGGiJDVZ1HqgiBFGiUpGSd7M4IsYkUjKjWEtdeo3EGX7s659BycXhpi9t0yUAhp0Bg3kkX_PQw47mV0OFY9w-gP3kaRvtAz6uL0Tbki90B-9gNsHGEWVROY5Ob6ZS2Vwp7ERspX5D-HXjerbDM8hzDuOWJXbYKJy7L1jNMzDET8jbBJSCO_vYuaQc4vRCwWTA7pu3lp-mpOnQV"/>
+</div>
+<span class="font-headline-md text-headline-md font-bold text-primary">AgriCare</span>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors active:scale-95 duration-200">
+<span class="material-symbols-outlined text-primary">notifications</span>
+</button>
+</div>
+</header>
+<main class="pt-20 pb-28 px-margin-mobile flex flex-col gap-stack-lg max-w-[390px] mx-auto">
+<!-- Greeting & Location -->
+<section class="mt-4">
+<h1 class="font-headline-sm text-headline-sm text-on-surface">Hello, Patil Farms</h1>
+<div class="flex items-center gap-1 text-on-surface-variant mt-1">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="font-label-md text-label-md">Pune, Maharashtra</span>
+</div>
+</section>
+<!-- Weather Alert -->
+<section class="bg-[#FFF8E1] p-4 rounded-xl flex items-start gap-3 border border-amber-200 shadow-sm animate-pulse-subtle">
+<div class="bg-amber-100 p-2 rounded-lg">
+<span class="material-symbols-outlined text-amber-700">warning</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-amber-900">Crop Health Alert</span>
+<p class="font-body-md text-[14px] leading-snug text-amber-800 mt-0.5">High Alternaria leaf spot hazard alert for Cotton</p>
+</div>
+</section>
+<!-- Quick Action Grid -->
+<section class="grid grid-cols-2 gap-4">
+<!-- AI Disease Scan -->
+<button class="bg-white p-4 rounded-xl shadow-sm border border-outline-variant/10 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+<div class="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[28px]">document_scanner</span>
+</div>
+<span class="font-label-md text-label-md text-center text-on-surface">AI Disease Scan</span>
+</button>
+<!-- Expert Chat -->
+<button class="bg-white p-4 rounded-xl shadow-sm border border-outline-variant/10 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+<div class="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[28px]">chat</span>
+</div>
+<span class="font-label-md text-label-md text-center text-on-surface">Expert Chat</span>
+</button>
+<!-- Input Store -->
+<button class="bg-white p-4 rounded-xl shadow-sm border border-outline-variant/10 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+<div class="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[28px]">shopping_basket</span>
+</div>
+<span class="font-label-md text-label-md text-center text-on-surface">Input Store</span>
+</button>
+<!-- Soil Test Cards -->
+<button class="bg-white p-4 rounded-xl shadow-sm border border-outline-variant/10 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+<div class="w-12 h-12 rounded-full bg-[#E8F5E9] flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[28px]">science</span>
+</div>
+<span class="font-label-md text-label-md text-center text-on-surface">Soil Test Cards</span>
+</button>
+</section>
+<!-- Active Consultation -->
+<section class="bg-white p-5 rounded-2xl shadow-sm border border-outline-variant/10">
+<div class="flex justify-between items-start mb-4">
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Active Case</span>
+<h3 class="font-headline-sm text-[20px] text-on-surface mt-1">Cotton Leaves</h3>
+</div>
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full font-label-sm text-label-sm flex items-center gap-1">
+<span class="w-1.5 h-1.5 bg-secondary rounded-full"></span>
+                    ACTIVE
+                </span>
+</div>
+<div class="flex items-center gap-4 py-4 border-y border-outline-variant/10">
+<div class="relative">
+<div class="w-12 h-12 rounded-full bg-surface-container-high overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional agricultural specialist in a crisp lab coat, standing in a modern experimental greenhouse. The specialist has a calm and helpful expression, representing expertise and reliability. The aesthetic is clean, bright, and clinical with soft green bokeh of plants in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBp-lQeSwETlGPRS6nK51D24vZIUPdzYRjEapnewbeFew4MlgztrJKmgxPRxQH2KAkRBURtCE_XxUQKA_obz0z5YsIWH8JhwdJCr17KKN3G2hS9q92GOqnEBnheoWRMpBuOjC-AH771-Gcs8FmZX_V5Gpl85JI0f1Yu8nguvnlEYZMXvhjlw3knvZd23ZPVbxhCeywNdVM3tUJY5jJ3eeF7E2bRBDi8QwPd96qFOm3ayeJGvNneCsJf3pQbtwjYzM9Tr-N9Ru0gcwTM"/>
+</div>
+<div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface">Dr. Arvind Kumar</span>
+<span class="font-body-md text-[13px] text-on-surface-variant">Agronomist Specialist</span>
+</div>
+</div>
+<button class="w-full mt-4 py-3 px-4 bg-secondary-container text-on-secondary-container rounded-xl font-label-md text-label-md flex items-center justify-center gap-2 hover:bg-secondary-container/80 transition-colors active:scale-[0.98] duration-150">
+<span class="material-symbols-outlined text-[20px]">forum</span>
+                Open Chat
+            </button>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-t border-outline-variant/30 shadow-lg rounded-t-xl safe-pb">
+<div class="flex justify-around items-center h-20 w-full px-4 max-w-[390px] mx-auto">
+<!-- Home (Active) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary rounded-full px-4 py-1 active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-sm text-label-sm">Home</span>
+</a>
+<!-- Scan -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant px-4 py-1 hover:text-primary transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">document_scanner</span>
+<span class="font-label-sm text-label-sm">Scan</span>
+</a>
+<!-- Store -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant px-4 py-1 hover:text-primary transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">shopping_basket</span>
+<span class="font-label-sm text-label-sm">Store</span>
+</a>
+<!-- Tickets -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-on-surface-variant px-4 py-1 hover:text-primary transition-all active:scale-90 duration-150" href="#">
+<span class="material-symbols-outlined">confirmation_number</span>
+<span class="font-label-sm text-label-sm">Tickets</span>
+</a>
+</div>
+</nav>
+<script>
+        // Micro-interaction for the notification button
+        const notificationBtn = document.querySelector('header button');
+        notificationBtn.addEventListener('click', () => {
+            notificationBtn.classList.add('scale-90');
+            setTimeout(() => notificationBtn.classList.remove('scale-90'), 150);
+        });
+
+        // Simple scroll observer for header background opacity
+        window.addEventListener('scroll', () => {
+            const header = document.querySelector('header');
+            if (window.scrollY > 20) {
+                header.classList.add('shadow-md');
+            } else {
+                header.classList.remove('shadow-md');
+            }
+        });
+    </script>
+</body></html>

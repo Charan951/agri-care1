@@ -1,10 +1,10 @@
 import { Response } from 'express';
-import bcrypt from 'bcryptjs';
-import { User } from '../models/User';
-import { DiseaseReport } from '../models/DiseaseReport';
 import { Consultation } from '../models/Consultation';
+import { DiseaseReport } from '../models/DiseaseReport';
+import { User } from '../models/User';
 import { Product } from '../models/Product';
 import { Order } from '../models/Order';
+import { Payment } from '../models/Payment';
 import { SystemNotification } from '../models/SystemNotification';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { emitToRoom } from '../utils/socket';
@@ -14,7 +14,7 @@ import mongoose from 'mongoose';
 const isValidId = (id: string) => mongoose.Types.ObjectId.isValid(id);
 
 // ==========================================
-// 1. DASHBOARD OVERVIEW STATS
+// 1. SPECIALIST DASHBOARD & PERFORMANCE
 // ==========================================
 export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -29,7 +29,6 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
     const active = await Consultation.countDocuments({ specialistId, status: 'ACTIVE' });
     const completed = await Consultation.countDocuments({ specialistId, status: 'COMPLETED' });
 
-    // Waiting for Farmer: Active and the last message in chatHistory is from the specialist
     const activeConsultations = await Consultation.find({ specialistId, status: 'ACTIVE' });
     let waitingFarmer = 0;
     for (const c of activeConsultations) {
@@ -41,7 +40,6 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
       }
     }
 
-    // Today's consultations
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     const todayCount = await Consultation.countDocuments({
@@ -50,9 +48,8 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
     });
 
     const avgRating = req.user?.rating || 5.0;
-    const earnings = completed * 250; // Specialist receives standard ₹250 per completed consult
+    const earnings = completed * 250;
 
-    // Recent activities (populate farmer name)
     const recentConsultations = await Consultation.find({ specialistId })
       .populate('farmerId', 'name')
       .populate('reportId', 'cropName')
@@ -67,7 +64,6 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
       timestamp: c.updatedAt
     }));
 
-    // Specialist notifications
     const notifications = await SystemNotification.find({
       $or: [
         { title: /assigned/i },
@@ -95,8 +91,90 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
   }
 };
 
+export const getSpecialistAnalytics = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const specialistId = req.user?._id;
+    if (!specialistId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const totalConsultations = await Consultation.countDocuments({ specialistId });
+    const resolvedConsultations = await Consultation.countDocuments({ specialistId, status: 'COMPLETED' });
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1);
+
+    const monthlyStats = await Consultation.aggregate([
+      {
+        $match: {
+          specialistId,
+          createdAt: { $gte: sixMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } }
+    ]);
+
+    const diseaseStats = await Consultation.aggregate([
+      {
+        $match: {
+          specialistId,
+          'diagnosisDetails.disease': { $exists: true, $ne: '' }
+        }
+      },
+      {
+        $group: {
+          _id: '$diagnosisDetails.disease',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    const completedConsultations = await Consultation.find({ specialistId, status: 'COMPLETED' });
+    let totalResolutionHours = 0;
+    completedConsultations.forEach(c => {
+      const diffMs = c.updatedAt.getTime() - c.createdAt.getTime();
+      totalResolutionHours += diffMs / (1000 * 60 * 60);
+    });
+    const avgResolutionTime = completedConsultations.length > 0
+      ? parseFloat((totalResolutionHours / completedConsultations.length).toFixed(1))
+      : 12.5;
+
+    const rating = req.user?.rating || 5.0;
+    const successRate = totalConsultations > 0 ? Math.round((resolvedConsultations / totalConsultations) * 100) : 100;
+
+    res.json({
+      analytics: {
+        totalConsultations,
+        resolvedConsultations,
+        successRate,
+        avgResolutionTime,
+        rating,
+        monthlyStats: monthlyStats.map(m => ({
+          month: `${m._id.year}-${String(m._id.month).padStart(2, '0')}`,
+          count: m.count
+        })),
+        diseaseStats: diseaseStats.map(d => ({
+          disease: d._id,
+          count: d.count
+        }))
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error fetching specialist analytics' });
+  }
+};
+
 // ==========================================
-// 2. ASSIGNED CONSULTATIONS
+// 2. ACTIVE CASES OPERATIONS
 // ==========================================
 export const getAssignedConsultations = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -107,7 +185,7 @@ export const getAssignedConsultations = async (req: AuthenticatedRequest, res: R
     if (status) {
       query.status = status;
     } else {
-      query.status = { $ne: 'REJECTED' }; // exclude rejected consultations by default
+      query.status = { $ne: 'REJECTED' };
     }
 
     let consultations = await Consultation.find(query)
@@ -118,21 +196,18 @@ export const getAssignedConsultations = async (req: AuthenticatedRequest, res: R
       })
       .sort({ createdAt: -1 });
 
-    // Filter by Crop
     if (crop) {
       consultations = consultations.filter(c => 
         c.reportId && (c.reportId as any).cropName?.toLowerCase().includes(String(crop).toLowerCase())
       );
     }
 
-    // Filter by Priority
     if (priority) {
       consultations = consultations.filter(c => 
         c.reportId && (c.reportId as any).priority === priority
       );
     }
 
-    // Filter by District (check farmer's addresses or farms)
     if (district) {
       consultations = consultations.filter(c => {
         const farmer = c.farmerId as any;
@@ -148,7 +223,6 @@ export const getAssignedConsultations = async (req: AuthenticatedRequest, res: R
       });
     }
 
-    // Keyword Search (Farmer Name, Crop Name, Symptoms)
     if (search) {
       const searchStr = String(search).toLowerCase();
       consultations = consultations.filter(c => {
@@ -168,9 +242,6 @@ export const getAssignedConsultations = async (req: AuthenticatedRequest, res: R
   }
 };
 
-// ==========================================
-// 3. CONSULTATION DETAILS & TIMELINE
-// ==========================================
 export const getConsultationDetails = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -193,7 +264,6 @@ export const getConsultationDetails = async (req: AuthenticatedRequest, res: Res
       return;
     }
 
-    // Access farmer history (10. Consultation History)
     const farmerId = consultation.farmerId?._id;
     let farmerHistory: any[] = [];
     let farmerOrders: any[] = [];
@@ -215,7 +285,6 @@ export const getConsultationDetails = async (req: AuthenticatedRequest, res: Res
   }
 };
 
-// Accept Consultation
 export const acceptConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -233,12 +302,10 @@ export const acceptConsultation = async (req: AuthenticatedRequest, res: Respons
     consultation.status = 'ACTIVE';
     await consultation.save();
 
-    // Sync Disease Report status
     if (consultation.reportId) {
       await DiseaseReport.findByIdAndUpdate(consultation.reportId, { status: 'ASSIGNED' });
     }
 
-    // Notification update
     emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: 'ACTIVE' });
     emitToRoom('role_ADMIN', 'consultation_accepted', { consultationId: id, specialistId: req.user?._id });
 
@@ -248,7 +315,6 @@ export const acceptConsultation = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
-// Reject Consultation (Reason Required)
 export const rejectConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -269,7 +335,6 @@ export const rejectConsultation = async (req: AuthenticatedRequest, res: Respons
     consultation.rejectionReason = reason;
     await consultation.save();
 
-    // Release/Unassign from disease report so admin can reassign
     if (consultation.reportId) {
       await DiseaseReport.findByIdAndUpdate(consultation.reportId, {
         status: 'OPEN',
@@ -291,7 +356,7 @@ export const rejectConsultation = async (req: AuthenticatedRequest, res: Respons
 };
 
 // ==========================================
-// 4. DISEASE DIAGNOSIS
+// 3. PRESCRIPTION & RECOMMENDATIONS
 // ==========================================
 export const submitDiagnosis = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -322,7 +387,6 @@ export const submitDiagnosis = async (req: AuthenticatedRequest, res: Response):
     }
     await consultation.save();
 
-    // Sync to DiseaseReport
     if (consultation.reportId) {
       await DiseaseReport.findByIdAndUpdate(consultation.reportId, {
         specialistDiagnosis: {
@@ -340,9 +404,6 @@ export const submitDiagnosis = async (req: AuthenticatedRequest, res: Response):
   }
 };
 
-// ==========================================
-// 5. TREATMENT RECOMMENDATION
-// ==========================================
 export const submitTreatment = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -378,7 +439,6 @@ export const submitTreatment = async (req: AuthenticatedRequest, res: Response):
       cropCareTips: cropCareTips || ''
     };
 
-    // Keep legacy prescription schema synced for compatibility
     const medicinesCombined = [
       ...(Array.isArray(fertilizers) ? fertilizers : []),
       ...(Array.isArray(pesticides) ? pesticides : []),
@@ -390,11 +450,9 @@ export const submitTreatment = async (req: AuthenticatedRequest, res: Response):
       createdAt: new Date()
     };
 
-    // Mark as COMPLETED upon final submission of treatment
     consultation.status = 'COMPLETED';
     await consultation.save();
 
-    // Update DiseaseReport status to RESOLVED
     if (consultation.reportId) {
       await DiseaseReport.findByIdAndUpdate(consultation.reportId, {
         status: 'RESOLVED',
@@ -410,13 +468,10 @@ export const submitTreatment = async (req: AuthenticatedRequest, res: Response):
   }
 };
 
-// ==========================================
-// 6. MARKETPLACE RECOMMENDATION
-// ==========================================
 export const recommendProducts = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { productIds } = req.body; // Array of product ids
+    const { productIds } = req.body;
 
     if (!Array.isArray(productIds)) {
       res.status(400).json({ message: 'productIds must be an array of product IDs' });
@@ -439,7 +494,6 @@ export const recommendProducts = async (req: AuthenticatedRequest, res: Response
   }
 };
 
-// Get Merchant Products list (for recommendations)
 export const getMarketplaceProducts = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { search, category } = req.query;
@@ -455,7 +509,7 @@ export const getMarketplaceProducts = async (req: AuthenticatedRequest, res: Res
 };
 
 // ==========================================
-// 7. CUSTOMER COMMUNICATION (CHAT & MEDIA)
+// 4. CHAT COMMUNICATIONS
 // ==========================================
 export const sendSpecialistMessage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -470,7 +524,6 @@ export const sendSpecialistMessage = async (req: AuthenticatedRequest, res: Resp
 
     let finalMessageText = message;
     if (mediaUrl) {
-      // Sleek simulated media sharing
       finalMessageText = `[${mediaType || 'Media File'}] ${message || 'View attached file'}: ${mediaUrl}`;
     }
 
@@ -495,8 +548,76 @@ export const sendSpecialistMessage = async (req: AuthenticatedRequest, res: Resp
   }
 };
 
+export const sendConsultationMessage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+
+    const consultation = await Consultation.findById(id);
+    if (!consultation) {
+      res.status(404).json({ message: 'Consultation not found' });
+      return;
+    }
+
+    const newMessage = {
+      senderId: req.user?._id as mongoose.Types.ObjectId,
+      message,
+      timestamp: new Date()
+    };
+
+    consultation.chatHistory.push(newMessage);
+    await consultation.save();
+
+    const populatedConsultation = await Consultation.findById(id)
+      .populate('chatHistory.senderId', 'name role');
+
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_chat_updated', { consultationId: id, chatHistory: populatedConsultation?.chatHistory });
+    emitToRoom(`user_${consultation.specialistId}`, 'consultation_chat_updated', { consultationId: id, chatHistory: populatedConsultation?.chatHistory });
+
+    res.json({ message: 'Message sent successfully', chatHistory: populatedConsultation?.chatHistory });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error sending message' });
+  }
+};
+
+export const sendMockSpecialistMessage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+
+    const consultation = await Consultation.findById(id);
+    if (!consultation) {
+      res.status(404).json({ message: 'Consultation not found' });
+      return;
+    }
+
+    if (!consultation.specialistId) {
+      res.status(400).json({ message: 'No specialist assigned to this consultation yet' });
+      return;
+    }
+
+    const newMessage = {
+      senderId: consultation.specialistId as mongoose.Types.ObjectId,
+      message,
+      timestamp: new Date()
+    };
+
+    consultation.chatHistory.push(newMessage);
+    await consultation.save();
+
+    const populatedConsultation = await Consultation.findById(id)
+      .populate('chatHistory.senderId', 'name role');
+
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_chat_updated', { consultationId: id, chatHistory: populatedConsultation?.chatHistory });
+
+    res.json({ message: 'Mock specialist message sent successfully', chatHistory: populatedConsultation?.chatHistory });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error sending mock message' });
+  }
+};
+
 // ==========================================
-// 8. FOLLOW-UP MANAGEMENT
+// 5. FOLLOW-UP SCHEDULERS
 // ==========================================
 export const manageFollowUp = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -522,7 +643,6 @@ export const manageFollowUp = async (req: AuthenticatedRequest, res: Response): 
   }
 };
 
-// Close Follow-up
 export const closeFollowUp = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -543,143 +663,175 @@ export const closeFollowUp = async (req: AuthenticatedRequest, res: Response): P
 };
 
 // ==========================================
-// 9. REPORTS & PERFORMANCE ANALYTICS
+// 6. GENERAL CONSULTATIONS QUERY
 // ==========================================
-export const getSpecialistAnalytics = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getConsultations = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const specialistId = req.user?._id;
-    if (!specialistId) {
-      res.status(401).json({ message: 'Unauthorized' });
+    const consultations = await Consultation.find()
+      .populate('reportId', 'cropName symptoms imageUrl')
+      .populate('farmerId', 'name email mobile')
+      .populate('specialistId', 'name specialization mobile')
+      .sort({ createdAt: -1 });
+
+    res.json(consultations);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getFarmerConsultations = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const consultations = await Consultation.find({ farmerId: req.user?._id })
+      .populate('specialistId', 'name specialization rating mobile')
+      .populate('reportId')
+      .sort({ createdAt: -1 });
+    res.json({ consultations });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error fetching consultations' });
+  }
+};
+
+export const requestConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { reportId } = req.body;
+    const report = await DiseaseReport.findById(reportId);
+    if (!report) {
+      res.status(404).json({ message: 'Disease report not found' });
       return;
     }
 
-    const totalConsultations = await Consultation.countDocuments({ specialistId });
-    const resolvedConsultations = await Consultation.countDocuments({ specialistId, status: 'COMPLETED' });
+    const payment = await Payment.findOne({ orderId: reportId, status: 'SUCCESSFUL' });
+    if (!payment) {
+      res.status(402).json({ message: 'Payment required. Please pay the consultation fee first.' });
+      return;
+    }
 
-    // Aggregate monthly consultations counts (last 6 months)
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
-    sixMonthsAgo.setDate(1);
+    const specialist = await User.findOne({ role: 'AGRI_SPECIALIST', status: 'ACTIVE' });
+    if (!specialist) {
+      res.status(400).json({ message: 'No specialists are currently available. Try again later.' });
+      return;
+    }
 
-    const monthlyStats = await Consultation.aggregate([
-      {
-        $match: {
-          specialistId,
-          createdAt: { $gte: sixMonthsAgo }
+    const consultation = new Consultation({
+      reportId,
+      farmerId: req.user?._id,
+      specialistId: specialist._id,
+      status: 'ACTIVE',
+      chatHistory: [
+        {
+          senderId: req.user?._id,
+          message: `Consultation requested for ${report.cropName}. Symptoms: ${report.symptoms}`,
+          timestamp: new Date()
         }
-      },
-      {
-        $group: {
-          _id: { month: { $month: '$createdAt' }, year: { $year: '$createdAt' } },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { '_id.year': 1, '_id.month': 1 } }
-    ]);
-
-    // Aggregate disease statistics
-    const diseaseStats = await Consultation.aggregate([
-      {
-        $match: {
-          specialistId,
-          'diagnosisDetails.disease': { $exists: true, $ne: '' }
-        }
-      },
-      {
-        $group: {
-          _id: '$diagnosisDetails.disease',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    // Average resolution time (mock analysis or difference between completed and created date)
-    const completedConsultations = await Consultation.find({ specialistId, status: 'COMPLETED' });
-    let totalResolutionHours = 0;
-    completedConsultations.forEach(c => {
-      const diffMs = c.updatedAt.getTime() - c.createdAt.getTime();
-      totalResolutionHours += diffMs / (1000 * 60 * 60);
+      ]
     });
-    const avgResolutionTime = completedConsultations.length > 0
-      ? parseFloat((totalResolutionHours / completedConsultations.length).toFixed(1))
-      : 12.5; // fallback to default standard hours
 
-    const rating = req.user?.rating || 5.0;
-    const successRate = totalConsultations > 0 ? Math.round((resolvedConsultations / totalConsultations) * 100) : 100;
+    await consultation.save();
 
-    res.json({
-      analytics: {
-        totalConsultations,
-        resolvedConsultations,
-        successRate,
-        avgResolutionTime,
-        rating,
-        monthlyStats: monthlyStats.map(m => ({
-          month: `${m._id.year}-${String(m._id.month).padStart(2, '0')}`,
-          count: m.count
-        })),
-        diseaseStats: diseaseStats.map(d => ({
-          disease: d._id,
-          count: d.count
-        }))
-      }
-    });
+    report.status = 'ASSIGNED';
+    report.assignedSpecialistId = specialist._id as mongoose.Types.ObjectId;
+    await report.save();
+
+    res.status(201).json({ message: 'Consultation requested', consultation });
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Error fetching specialist analytics' });
+    res.status(500).json({ message: error.message || 'Error requesting consultation' });
   }
 };
 
-// ==========================================
-// 10. PROFILE & SETTINGS
-// ==========================================
-export const getSpecialistProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const createConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const user = await User.findById(req.user?._id).select('-password');
-    res.json({ user });
+    const { reportId, farmerId, specialistId, status, chatHistory, prescription } = req.body;
+
+    const newConsultation = new Consultation({
+      reportId,
+      farmerId,
+      specialistId,
+      status: status || 'PENDING',
+      chatHistory: chatHistory || [],
+      prescription
+    });
+
+    await newConsultation.save();
+    res.status(201).json({ message: 'Consultation created successfully.', consultation: newConsultation });
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Error fetching profile' });
+    res.status(500).json({ message: error.message });
   }
 };
 
-export const updateSpecialistProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const updateConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const {
-      name,
-      mobile,
-      avatarUrl,
-      workingRegion,
-      preferredLanguage,
-      qualifications,
-      experienceYears,
-      languages,
-      availabilityStatus,
-      bio,
-      specialistTitle
-    } = req.body;
+    const { id } = req.params;
+    const { status, specialistId, chatHistory, prescription, addMessage } = req.body;
 
-    const user = await User.findByIdAndUpdate(
-      req.user?._id,
-      {
-        $set: {
-          name,
-          mobile,
-          avatarUrl,
-          workingRegion,
-          preferredLanguage,
-          qualifications,
-          experienceYears,
-          languages,
-          availabilityStatus,
-          bio,
-          specialistTitle
-        }
-      },
-      { new: true }
-    ).select('-password');
+    const consultation = await Consultation.findById(id);
+    if (!consultation) {
+      res.status(404).json({ message: 'Consultation not found.' });
+      return;
+    }
 
-    res.json({ message: 'Profile updated successfully', user });
+    if (status) consultation.status = status;
+    if (specialistId) consultation.specialistId = specialistId;
+    if (chatHistory) consultation.chatHistory = chatHistory;
+    if (prescription) consultation.prescription = prescription;
+
+    if (addMessage) {
+      consultation.chatHistory.push({
+        senderId: addMessage.senderId,
+        message: addMessage.message,
+        timestamp: new Date()
+      });
+    }
+
+    await consultation.save();
+
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    }
+
+    res.json({ message: 'Consultation updated successfully.', consultation });
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Error updating profile' });
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const deleted = await Consultation.findByIdAndDelete(id);
+    if (!deleted) {
+      res.status(404).json({ message: 'Consultation not found.' });
+      return;
+    }
+    res.json({ message: 'Consultation deleted successfully.' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const rateSpecialist = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { rating } = req.body;
+
+    const consultation = await Consultation.findById(id);
+    if (!consultation) {
+      res.status(404).json({ message: 'Consultation not found' });
+      return;
+    }
+
+    consultation.status = 'COMPLETED';
+    await consultation.save();
+
+    const specialist = await User.findById(consultation.specialistId);
+    if (specialist) {
+      const prevRating = specialist.rating || 5.0;
+      specialist.rating = parseFloat(((prevRating + rating) / 2).toFixed(2));
+      await specialist.save();
+    }
+
+    res.json({ message: 'Thank you for your rating!', consultation });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error submitting rating' });
   }
 };

@@ -1,0 +1,939 @@
+import { useState, useEffect } from "react";
+import {
+  Brain, ShieldCheck, Sprout, ShoppingBag, MessageSquare, Mic,
+  Send, Square, Calendar, ZoomIn, Download, Search, CheckCircle,
+  FileText
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { apiFetch } from "@/lib/api";
+
+interface ConsultationWorkspaceProps {
+  activeConsultation: any;
+  farmerHistory: any[];
+  farmerOrders: any[];
+  user: any;
+  isRecording: boolean;
+  startRecording: () => void;
+  stopRecording: () => void;
+  chatMessage: string;
+  setChatMessage: (msg: string) => void;
+  sendText: (text?: string) => void;
+  triggerMediaRequest: (type: "images" | "videos" | "progress") => void;
+  handleAccept: (id: string) => void;
+  handleRejectClick: (id: string) => void;
+  selectConsultation: (id: string) => void;
+  setSelectedConsultationId: (id: string | null) => void;
+  setActiveConsultation: (c: any) => void;
+  loadDashboardData: () => void;
+  loadConsultations: () => void;
+}
+
+export function ConsultationWorkspace({
+  activeConsultation,
+  farmerHistory,
+  farmerOrders,
+  user,
+  isRecording,
+  startRecording,
+  stopRecording,
+  chatMessage,
+  setChatMessage,
+  sendText,
+  triggerMediaRequest,
+  handleAccept,
+  handleRejectClick,
+  selectConsultation,
+  setSelectedConsultationId,
+  setActiveConsultation,
+  loadDashboardData,
+  loadConsultations
+}: ConsultationWorkspaceProps) {
+  // Form details states
+  const [diseaseInput, setDiseaseInput] = useState("");
+  const [severityInput, setSeverityInput] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM");
+  const [symptomsInput, setSymptomsInput] = useState("");
+  const [causesInput, setCausesInput] = useState("");
+  const [prevMeasuresInput, setPrevMeasuresInput] = useState("");
+  const [timelineInput, setTimelineInput] = useState("7-14 Days");
+  const [notesInput, setNotesInput] = useState("");
+
+  const [recFertilizers, setRecFertilizers] = useState("");
+  const [recPesticides, setRecPesticides] = useState("");
+  const [recFungicides, setRecFungicides] = useState("");
+  const [recOrganic, setRecOrganic] = useState("");
+  const [recBioFert, setRecBioFert] = useState("");
+  const [dosageInstructions, setDosageInstructions] = useState("");
+  const [spraySchedule, setSpraySchedule] = useState("");
+  const [irrigationAdvice, setIrrigationAdvice] = useState("");
+  const [soilAdvice, setSoilAdvice] = useState("");
+  const [careTips, setCareTips] = useState("");
+
+  // Follow-up
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [followUpReminder, setFollowUpReminder] = useState("");
+
+  // Product recommendation states
+  const [productQuery, setProductQuery] = useState("");
+  const [productsList, setProductsList] = useState<any[]>([]);
+  const [recommendedProductIds, setRecommendedProductIds] = useState<string[]>([]);
+
+  // Lightbox & Compare states
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [compareImages, setCompareImages] = useState<boolean>(false);
+
+  // Prepopulate form on activeConsultation change
+  useEffect(() => {
+    if (activeConsultation) {
+      setDiseaseInput(activeConsultation.diagnosisDetails?.disease || "");
+      setSeverityInput(activeConsultation.diagnosisDetails?.severity || "MEDIUM");
+      setSymptomsInput(activeConsultation.diagnosisDetails?.symptoms?.join(", ") || "");
+      setCausesInput(activeConsultation.diagnosisDetails?.causes?.join(", ") || "");
+      setPrevMeasuresInput(activeConsultation.diagnosisDetails?.preventiveMeasures?.join(", ") || "");
+      setTimelineInput(activeConsultation.diagnosisDetails?.recoveryTimeline || "7-14 Days");
+      setNotesInput(activeConsultation.diagnosisDetails?.internalNotes || "");
+
+      setRecFertilizers(activeConsultation.prescription?.fertilizers?.join(", ") || "");
+      setRecPesticides(activeConsultation.prescription?.pesticides?.join(", ") || "");
+      setRecFungicides(activeConsultation.prescription?.fungicides?.join(", ") || "");
+      setRecOrganic(activeConsultation.prescription?.organicAlternatives?.join(", ") || "");
+      setRecBioFert(activeConsultation.prescription?.bioFertilizers?.join(", ") || "");
+      setDosageInstructions(activeConsultation.prescription?.dosageInstructions || "");
+      setSpraySchedule(activeConsultation.prescription?.spraySchedule || "");
+      setIrrigationAdvice(activeConsultation.prescription?.irrigationAdvice || "");
+      setSoilAdvice(activeConsultation.prescription?.soilImprovementAdvice || "");
+      setCareTips(activeConsultation.prescription?.cropCareTips || "");
+
+      setRecommendedProductIds(activeConsultation.recommendedProducts?.map((p: any) => p._id || p) || []);
+      
+      if (activeConsultation.followUp?.scheduledDate) {
+        setFollowUpDate(new Date(activeConsultation.followUp.scheduledDate).toISOString().split("T")[0]);
+        setFollowUpReminder(activeConsultation.followUp.reminderNote || "");
+      } else {
+        setFollowUpDate("");
+        setFollowUpReminder("");
+      }
+    }
+  }, [activeConsultation]);
+
+  // Load marketplace products list
+  useEffect(() => {
+    const fetchCatalog = async () => {
+      try {
+        const query = productQuery ? `?search=${productQuery}` : "";
+        const res = await apiFetch(`/api/specialist/products${query}`);
+        if (res.ok) {
+          const data = await res.json();
+          setProductsList(data.products || []);
+        }
+      } catch (err) {
+        console.error("Error loading specialist merchant products", err);
+      }
+    };
+    fetchCatalog();
+  }, [productQuery]);
+
+  const handleSaveDiagnosis = async () => {
+    if (!diseaseInput.trim()) {
+      toast.error("Please specify a disease name.");
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/specialist/consultations/${activeConsultation._id}/diagnosis`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          disease: diseaseInput,
+          severity: severityInput,
+          symptoms: symptomsInput.split(",").map(s => s.trim()).filter(Boolean),
+          causes: causesInput.split(",").map(c => c.trim()).filter(Boolean),
+          preventiveMeasures: prevMeasuresInput.split(",").map(p => p.trim()).filter(Boolean),
+          recoveryTimeline: timelineInput,
+          internalNotes: notesInput
+        })
+      });
+      if (res.ok) {
+        toast.success("Expert diagnosis saved successfully.");
+        selectConsultation(activeConsultation._id);
+      } else {
+        toast.error("Failed to save diagnosis.");
+      }
+    } catch (err) {
+      toast.error("Error saving diagnosis.");
+    }
+  };
+
+  const handleConfirmAI = () => {
+    if (!activeConsultation?.reportId?.aiPrediction) {
+      toast.info("No AI predictions available to confirm.");
+      return;
+    }
+    const ai = activeConsultation.reportId.aiPrediction;
+    setDiseaseInput(ai.disease || "");
+    setSymptomsInput(ai.symptomsDetail || activeConsultation.reportId.symptoms || "");
+    setCausesInput(ai.causes || "");
+    setPrevMeasuresInput(ai.prevention || "");
+    setTimelineInput(ai.recoveryTimeline || "7-14 Days");
+
+    setRecFertilizers(ai.fertilizers?.join(", ") || "");
+    setRecPesticides(ai.pesticides?.join(", ") || "");
+    setRecOrganic(ai.organicTreatment || "");
+    setDosageInstructions(ai.dosage || "");
+    setSpraySchedule(ai.applicationMethod || "");
+    setCareTips(ai.safetyPrecautions || "");
+
+    toast.success("AI predictions copied into formulation forms. Modify as needed.");
+  };
+
+  const handleSaveTreatment = async () => {
+    try {
+      const res = await apiFetch(`/api/specialist/consultations/${activeConsultation._id}/treatment`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fertilizers: recFertilizers.split(",").map(f => f.trim()).filter(Boolean),
+          pesticides: recPesticides.split(",").map(p => p.trim()).filter(Boolean),
+          fungicides: recFungicides.split(",").map(f => f.trim()).filter(Boolean),
+          organicAlternatives: recOrganic.split(",").map(o => o.trim()).filter(Boolean),
+          bioFertilizers: recBioFert.split(",").map(b => b.trim()).filter(Boolean),
+          dosageInstructions,
+          spraySchedule,
+          irrigationAdvice,
+          soilImprovementAdvice: soilAdvice,
+          cropCareTips: careTips
+        })
+      });
+      if (res.ok) {
+        toast.success("Treatment recommendations sent. Consultation completed.");
+        selectConsultation(activeConsultation._id);
+        loadDashboardData();
+        loadConsultations();
+      } else {
+        toast.error("Failed to submit treatment recommendations.");
+      }
+    } catch (err) {
+      toast.error("Error submitting treatment.");
+    }
+  };
+
+  const toggleRecommendProduct = async (pId: string) => {
+    let updated = [...recommendedProductIds];
+    if (updated.includes(pId)) {
+      updated = updated.filter(id => id !== pId);
+    } else {
+      updated.push(pId);
+    }
+    setRecommendedProductIds(updated);
+
+    try {
+      const res = await apiFetch(`/api/specialist/consultations/${activeConsultation._id}/recommend-products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productIds: updated })
+      });
+      if (res.ok) {
+        toast.success("Product recommendation list updated.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const saveFollowUp = async () => {
+    try {
+      const res = await apiFetch(`/api/specialist/consultations/${activeConsultation._id}/follow-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scheduledDate: followUpDate,
+          reminderNote: followUpReminder,
+          status: "SCHEDULED"
+        })
+      });
+      if (res.ok) {
+        toast.success("Follow-up appointment scheduled.");
+        selectConsultation(activeConsultation._id);
+      }
+    } catch (err) {
+      toast.error("Error setting follow-up.");
+    }
+  };
+
+  const handleCloseFollowUp = async () => {
+    try {
+      const res = await apiFetch(`/api/specialist/consultations/${activeConsultation._id}/follow-up/close`, {
+        method: "PUT"
+      });
+      if (res.ok) {
+        toast.success("Follow-up closed successfully.");
+        selectConsultation(activeConsultation._id);
+      }
+    } catch (err) {
+      toast.error("Error closing follow-up.");
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full items-start">
+      {/* LEFT & CENTER DETAILS SECTION */}
+      <div className="lg:col-span-2 space-y-6">
+        {/* Farmer & Crop Case Sheet card */}
+        <Card className="shadow-sm border-border/80 overflow-hidden bg-card text-foreground">
+          <CardHeader className="bg-muted/40 border-b border-border/50 py-4 flex flex-row items-center justify-between">
+            <div className="text-left">
+              <span className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Case File</span>
+              <CardTitle className="text-lg font-bold text-emerald-800 dark:text-emerald-400 mt-1">
+                {activeConsultation.reportId?.cropName || "Unknown Crop"} Diagnosis Sheet
+              </CardTitle>
+            </div>
+            <Badge variant={activeConsultation.status === "PENDING" ? "secondary" : "default"} className="font-bold py-1 px-2.5 uppercase">
+              {activeConsultation.status}
+            </Badge>
+          </CardHeader>
+          <CardContent className="p-6 space-y-6">
+            {/* Farmer Details */}
+            <div>
+              <h3 className="text-sm font-bold border-b border-border pb-2 mb-3 text-emerald-700 text-left">1. Farmer Profile</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-left">
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Farmer Name</p>
+                  <p className="font-bold mt-0.5">{activeConsultation.farmerId?.name || "N/A"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Mobile Number</p>
+                  <p className="font-bold mt-0.5">{activeConsultation.farmerId?.mobile || "N/A"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">District / State</p>
+                  <p className="font-bold mt-0.5">
+                    {activeConsultation.farmerId?.savedAddresses?.[0]?.city || "Pune"}, {activeConsultation.farmerId?.savedAddresses?.[0]?.state || "Maharashtra"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Village</p>
+                  <p className="font-bold mt-0.5">{activeConsultation.farmerId?.savedAddresses?.[0]?.street || "Wadgaon"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Farm Size</p>
+                  <p className="font-bold mt-0.5">{activeConsultation.farmerId?.farms?.[0]?.size ? `${activeConsultation.farmerId.farms[0].size} Acres` : "12 Acres"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Soil Texture</p>
+                  <p className="font-bold mt-0.5">{activeConsultation.farmerId?.farms?.[0]?.soilType || "Clay Black"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Crop Symptoms Questionnaire */}
+            <div>
+              <h3 className="text-sm font-bold border-b border-border pb-2 mb-3 text-emerald-700 text-left">2. Crop Information & Symptoms Questionnaire</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm mb-4 text-left">
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Crop Name</p>
+                  <p className="font-bold text-emerald-600 mt-0.5">{activeConsultation.reportId?.cropName || "Cotton"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Growth Stage</p>
+                  <p className="font-bold mt-0.5">Flowering / Leaf Growth</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Sowing Date</p>
+                  <p className="font-bold mt-0.5">15 May 2026</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Irrigation Method</p>
+                  <p className="font-bold mt-0.5">Drip Irrigation</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Pesticides Sprayed</p>
+                  <p className="font-bold mt-0.5">Neem Oil (10 Days ago)</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Weather Condition</p>
+                  <p className="font-bold mt-0.5">Humid (74% RH)</p>
+                </div>
+              </div>
+              <div className="bg-muted/40 p-3.5 rounded-lg border border-border/60 text-left">
+                <p className="text-xs font-bold text-muted-foreground mb-1 uppercase tracking-wider">Farmer Stated Symptoms:</p>
+                <p className="text-sm italic font-bold text-foreground">"{activeConsultation.reportId?.symptoms || "No symptom description submitted."}"</p>
+              </div>
+            </div>
+
+            {/* Leaf Image Gallery */}
+            <div>
+              <div className="flex items-center justify-between border-b border-border pb-2 mb-3">
+                <h3 className="text-sm font-bold text-emerald-700">3. Leaf Image Gallery</h3>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setCompareImages(!compareImages)}
+                  className="h-7 text-xs font-bold hover:bg-emerald-600/10 text-emerald-700 cursor-pointer"
+                >
+                  {compareImages ? "Single View" : "Compare Images Side-by-Side"}
+                </Button>
+              </div>
+
+              {compareImages ? (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="border border-border/80 rounded-lg overflow-hidden relative bg-black flex items-center justify-center group h-64">
+                    <img 
+                      src={activeConsultation.reportId?.imageUrl || "https://images.unsplash.com/photo-1599599810769-bcde5a160d32"} 
+                      alt="Upload 1" 
+                      className="max-h-full object-contain cursor-zoom-in"
+                      onClick={() => setLightboxImage(activeConsultation.reportId?.imageUrl)}
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">Original image</div>
+                  </div>
+                  <div className="border border-border/80 rounded-lg overflow-hidden relative bg-black flex items-center justify-center group h-64">
+                    <img 
+                      src="https://images.unsplash.com/photo-1592417817098-8f3d6eb19675" 
+                      alt="Library Reference" 
+                      className="max-h-full object-contain cursor-zoom-in"
+                      onClick={() => setLightboxImage("https://images.unsplash.com/photo-1592417817098-8f3d6eb19675")}
+                    />
+                    <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase">Library reference</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <div 
+                    onClick={() => setLightboxImage(activeConsultation.reportId?.imageUrl)}
+                    className="border border-border/80 rounded-lg overflow-hidden relative bg-muted cursor-zoom-in hover:brightness-95 group h-36 flex items-center justify-center"
+                  >
+                    <img src={activeConsultation.reportId?.imageUrl || "https://images.unsplash.com/photo-1599599810769-bcde5a160d32"} className="object-cover h-full w-full bg-muted" />
+                  </div>
+                  <div 
+                    onClick={() => setLightboxImage("https://images.unsplash.com/photo-1592417817098-8f3d6eb19675")}
+                    className="border border-border/80 rounded-lg overflow-hidden relative bg-muted cursor-zoom-in hover:brightness-95 group h-36 flex items-center justify-center"
+                  >
+                    <img src="https://images.unsplash.com/photo-1592417817098-8f3d6eb19675" className="object-cover h-full w-full bg-muted" />
+                  </div>
+                  <div className="border border-dashed border-border/80 rounded-lg flex flex-col items-center justify-center text-muted-foreground text-xs p-3 text-center h-36">
+                    <Download className="h-5 w-5 mb-1.5" />
+                    <a 
+                      href={activeConsultation.reportId?.imageUrl} 
+                      download 
+                      target="_blank" 
+                      className="font-bold text-emerald-600 hover:underline"
+                    >
+                      Download Case Images
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Disease report summary */}
+        {activeConsultation.reportId?.aiPrediction && (
+          <Card className="shadow-sm border-border bg-emerald-950/5 border-l-4 border-l-emerald-600 text-foreground">
+            <CardHeader className="py-4 text-left">
+              <div className="flex items-center gap-2">
+                <Brain className="h-5 w-5 text-emerald-600" />
+                <CardTitle className="text-sm font-bold text-emerald-800 dark:text-emerald-400">AI Pathology Assessment Report</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="text-sm text-left">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">Predicted Disease</p>
+                  <p className="font-bold text-emerald-700 mt-0.5">{activeConsultation.reportId.aiPrediction.disease}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground font-semibold">AI Confidence Score</p>
+                  <p className="font-bold text-emerald-600 mt-0.5">{((activeConsultation.reportId.aiPrediction.confidence || 0.94) * 100).toFixed(0)}% Confidence</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground font-semibold">AI Suggested Chemical Sprays</p>
+                  <p className="font-bold text-foreground mt-0.5">{activeConsultation.reportId.aiPrediction.pesticides?.join(", ") || "None"}</p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border/40 pt-4">
+                <Button 
+                  onClick={handleConfirmAI} 
+                  className="bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-bold py-1.5 h-8 border-0 cursor-pointer"
+                >
+                  Confirm AI Result & Pre-fill Forms
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Expert Diagnosis Form */}
+        <Card className="shadow-sm border-border bg-card text-foreground">
+          <CardHeader className="py-4 border-b border-border/60 text-left">
+            <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-600" />
+              4. Expert Disease Diagnosis & Analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4 text-left">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Confirmed Disease Name *</label>
+                <Input 
+                  value={diseaseInput} 
+                  onChange={(e) => setDiseaseInput(e.target.value)} 
+                  placeholder="e.g. Alternaria Leaf Spot" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Severity Level</label>
+                <Select 
+                  value={severityInput} 
+                  onValueChange={(val: any) => setSeverityInput(val)}
+                >
+                  <SelectTrigger className="bg-background text-foreground border-border">
+                    <SelectValue placeholder="Select Severity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low / Mild</SelectItem>
+                    <SelectItem value="MEDIUM">Medium / Moderate</SelectItem>
+                    <SelectItem value="HIGH">High / Severe</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Key Symptoms Observed (Comma separated)</label>
+                <textarea 
+                  value={symptomsInput} 
+                  onChange={(e) => setSymptomsInput(e.target.value)} 
+                  rows={2} 
+                  className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  placeholder="Brown spots, yellow halo, defoliation" 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Pathogen / Causes (Comma separated)</label>
+                <textarea 
+                  value={causesInput} 
+                  onChange={(e) => setCausesInput(e.target.value)} 
+                  rows={2} 
+                  className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  placeholder="Alternaria macrospora, high leaf moisture" 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Preventive Care Guidelines</label>
+                <textarea 
+                  value={prevMeasuresInput} 
+                  onChange={(e) => setPrevMeasuresInput(e.target.value)} 
+                  rows={2} 
+                  className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  placeholder="Avoid overhead watering, pull out infected leaves" 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Expected Recovery Timeline</label>
+                <Input 
+                  value={timelineInput} 
+                  onChange={(e) => setTimelineInput(e.target.value)} 
+                  placeholder="e.g. 7-14 Days" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Private Internal Specialist Notes (Not visible to farmer)</label>
+              <textarea 
+                value={notesInput} 
+                onChange={(e) => setNotesInput(e.target.value)} 
+                rows={2} 
+                className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                placeholder="Private notes..." 
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button onClick={handleSaveDiagnosis} className="bg-emerald-600 text-white hover:bg-emerald-700 font-bold px-5 border-0 cursor-pointer">
+                Save Diagnosis Sheet
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Treatment Prescriptions Form */}
+        <Card className="shadow-sm border-border bg-card text-foreground">
+          <CardHeader className="py-4 border-b border-border/60 text-left">
+            <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2">
+              <Sprout className="h-5 w-5 text-emerald-600" />
+              5. Formulation Treatment & Crop Care Prescriptions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4 text-left">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Recommended Chemical Pesticides</label>
+                <Input 
+                  value={recPesticides} 
+                  onChange={(e) => setRecPesticides(e.target.value)} 
+                  placeholder="Mancozeb 75% WP, Chlorothalonil" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Recommended Fungicides</label>
+                <Input 
+                  value={recFungicides} 
+                  onChange={(e) => setRecFungicides(e.target.value)} 
+                  placeholder="Copper Oxychloride" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Chemical Fertilizers</label>
+                <Input 
+                  value={recFertilizers} 
+                  onChange={(e) => setRecFertilizers(e.target.value)} 
+                  placeholder="NPK 19:19:19, Urea" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Organic Biocides / Alternatives</label>
+                <Input 
+                  value={recOrganic} 
+                  onChange={(e) => setRecOrganic(e.target.value)} 
+                  placeholder="Neem seed oil spray" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Bio Fertilizers</label>
+                <Input 
+                  value={recBioFert} 
+                  onChange={(e) => setRecBioFert(e.target.value)} 
+                  placeholder="Trichoderma viride, Compost" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Dosage Instructions</label>
+                <textarea 
+                  value={dosageInstructions} 
+                  onChange={(e) => setDosageInstructions(e.target.value)} 
+                  rows={2} 
+                  className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  placeholder="Mix 2.5g Mancozeb per Liter of water. Spray crop foliage thoroughly." 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Spray Timeline Schedule</label>
+                <textarea 
+                  value={spraySchedule} 
+                  onChange={(e) => setSpraySchedule(e.target.value)} 
+                  rows={2} 
+                  className="w-full text-sm rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  placeholder="Apply early morning before dew dries. Re-apply in 10 days if spots spread." 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Irrigation Advice</label>
+                <Input 
+                  value={irrigationAdvice} 
+                  onChange={(e) => setIrrigationAdvice(e.target.value)} 
+                  placeholder="Reduce watering frequency during humidity" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">Soil Improvement Advice</label>
+                <Input 
+                  value={soilAdvice} 
+                  onChange={(e) => setSoilAdvice(e.target.value)} 
+                  placeholder="Incorporate farm yard manure, test pH" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground mb-1 block uppercase">General Crop Care Tips</label>
+                <Input 
+                  value={careTips} 
+                  onChange={(e) => setCareTips(e.target.value)} 
+                  placeholder="Monitor surrounding crops for spread" 
+                  className="bg-background text-foreground border-border"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-border/40">
+              <Button 
+                onClick={handleSaveTreatment} 
+                disabled={activeConsultation.status === "COMPLETED"}
+                className="bg-emerald-600 text-white hover:bg-emerald-700 font-bold px-6 border-0 cursor-pointer"
+              >
+                {activeConsultation.status === "COMPLETED" 
+                  ? "Consultation Completed" 
+                  : "Submit Treatment & Complete Ticket"
+                }
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Merchant product recommendations */}
+        <Card className="shadow-sm border-border bg-card text-foreground">
+          <CardHeader className="py-4 border-b border-border/60 text-left">
+            <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5 text-emerald-600" />
+              6. Merchant Inventory Product Recommendations
+            </CardTitle>
+            <CardDescription>Recommend genuine merchant supplies directly to the farmer's checkout cart.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2 relative">
+              <Search className="h-4 w-4 text-muted-foreground absolute left-3" />
+              <Input 
+                value={productQuery} 
+                onChange={(e) => setProductQuery(e.target.value)} 
+                placeholder="Search fertilizers, pesticides, sprays from merchant catalog..." 
+                className="pl-9 bg-background text-foreground border-border"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto no-scrollbar pr-1">
+              {productsList.map(prod => {
+                const isRecommended = recommendedProductIds.includes(prod._id);
+                return (
+                  <div 
+                    key={prod._id} 
+                    onClick={() => toggleRecommendProduct(prod._id)}
+                    className={`border rounded-lg p-3 flex items-center justify-between cursor-pointer transition-all ${
+                      isRecommended 
+                        ? "bg-emerald-600/10 border-emerald-500 shadow-sm" 
+                        : "bg-card border-border hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden text-left">
+                      <img src={prod.imageUrl} className="h-10 w-10 object-cover rounded bg-muted border" />
+                      <div className="overflow-hidden">
+                        <p className="text-xs font-bold leading-tight truncate">{prod.name}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">{prod.category} — ₹{prod.price}</p>
+                      </div>
+                    </div>
+                    <Badge variant={isRecommended ? "default" : "outline"} className="text-[10px] font-bold">
+                      {isRecommended ? "Recommended" : "Add"}
+                    </Badge>
+                  </div>
+                );
+              })}
+              {productsList.length === 0 && (
+                <p className="text-xs text-muted-foreground col-span-full text-center py-4">No marketplace products found.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* RIGHT SIDEBAR PANEL: CHAT & FOLLOW-UP */}
+      <div className="space-y-6">
+        {/* Accept/Reject Pending Actions Bar */}
+        {activeConsultation.status === "PENDING" && (
+          <Card className="border-amber-400 bg-amber-50 dark:bg-amber-950/20 border p-4 space-y-3">
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 text-left">
+              This assigned case is pending your confirmation. Accept to unlock communication and diagnosis workspace.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Button onClick={() => handleAccept(activeConsultation._id)} className="bg-emerald-600 text-white hover:bg-emerald-700 font-bold text-xs border-0 cursor-pointer">
+                Accept Case
+              </Button>
+              <Button onClick={() => handleRejectClick(activeConsultation._id)} variant="outline" className="border-amber-600 text-amber-700 hover:bg-amber-100 text-xs font-bold cursor-pointer">
+                Reject Case
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Live Chat */}
+        <Card className="shadow-sm border-border flex flex-col h-[480px] bg-card text-foreground">
+          <CardHeader className="py-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4.5 w-4.5 text-emerald-600" />
+              <CardTitle className="text-sm font-bold">Live Farmer Chat</CardTitle>
+            </div>
+            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 font-bold">Online</Badge>
+          </CardHeader>
+          
+          <div className="flex-grow overflow-y-auto p-4 space-y-3 bg-muted/5">
+            {activeConsultation.chatHistory?.map((chat: any, idx: number) => {
+              const isMe = chat.senderId?._id === user.id || chat.senderId === user.id || chat.senderId?.role === "AGRI_SPECIALIST";
+              return (
+                <div key={idx} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                  <div className={`max-w-[85%] rounded-lg p-3 text-xs leading-relaxed ${
+                    isMe 
+                      ? "bg-emerald-600 text-white rounded-br-none text-right" 
+                      : "bg-muted text-foreground rounded-bl-none border border-border text-left"
+                  }`}>
+                    <p className="font-bold text-[9px] mb-1 opacity-90">
+                      {isMe ? "You (Specialist)" : (chat.senderId?.name || "Farmer")}
+                    </p>
+                    <p className="font-semibold">{chat.message}</p>
+                  </div>
+                  <span className="text-[9px] text-muted-foreground mt-1 px-1">
+                    {new Date(chat.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+              );
+            })}
+            {(!activeConsultation.chatHistory || activeConsultation.chatHistory.length === 0) && (
+              <p className="text-xs text-muted-foreground text-center py-6">No chat history. Send a message to connect.</p>
+            )}
+          </div>
+
+          {/* Request Templates Shortcuts */}
+          <div className="border-t border-border/50 p-2 bg-muted/10 flex flex-wrap gap-1.5 justify-center">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => triggerMediaRequest("images")} 
+              className="h-6 text-[10px] font-bold border border-emerald-600/20 text-emerald-700 bg-card hover:bg-emerald-50 cursor-pointer"
+            >
+              + Request Images
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => triggerMediaRequest("videos")} 
+              className="h-6 text-[10px] font-bold border border-emerald-600/20 text-emerald-700 bg-card hover:bg-emerald-50 cursor-pointer"
+            >
+              + Request Videos
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => triggerMediaRequest("progress")} 
+              className="h-6 text-[10px] font-bold border border-emerald-600/20 text-emerald-700 bg-card hover:bg-emerald-50 cursor-pointer"
+            >
+              + Ask Progress
+            </Button>
+          </div>
+
+          {/* Input sending panel */}
+          <div className="border-t border-border/60 p-3 bg-card flex items-center gap-2">
+            <Button 
+              type="button" 
+              size="icon" 
+              variant="ghost" 
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`h-9 w-9 shrink-0 cursor-pointer ${isRecording ? "bg-red-500/10 text-red-600 animate-pulse hover:bg-red-500/20" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              {isRecording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </Button>
+
+            <Input 
+              value={chatMessage} 
+              onChange={(e) => setChatMessage(e.target.value)} 
+              onKeyDown={(e) => e.key === "Enter" && sendText()}
+              placeholder="Type message to farmer..." 
+              className="h-9 text-xs bg-background text-foreground border-border" 
+              disabled={activeConsultation.status === "PENDING"}
+            />
+            <Button 
+              type="button" 
+              size="icon" 
+              onClick={() => sendText()}
+              className="h-9 w-9 shrink-0 bg-emerald-600 text-white hover:bg-emerald-700 border-0 cursor-pointer"
+              disabled={activeConsultation.status === "PENDING"}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </Card>
+
+        {/* Follow-up management card */}
+        <Card className="shadow-sm border-border bg-card text-foreground">
+          <CardHeader className="py-3.5 border-b border-border/60 text-left">
+            <CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2">
+              <Calendar className="h-4.5 w-4.5 text-emerald-600" />
+              Follow-up & Checkups
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 space-y-4">
+            {activeConsultation.followUp?.status === "SCHEDULED" ? (
+              <div className="bg-emerald-600/5 border border-emerald-500/20 p-3 rounded-lg text-xs space-y-2 text-left">
+                <p className="font-bold text-emerald-800">Scheduled Follow-up Date:</p>
+                <p className="font-bold text-emerald-700">
+                  {new Date(activeConsultation.followUp.scheduledDate).toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+                {activeConsultation.followUp.reminderNote && (
+                  <p className="text-[10px] text-muted-foreground italic leading-relaxed">Note: "{activeConsultation.followUp.reminderNote}"</p>
+                )}
+                <Button 
+                  onClick={handleCloseFollowUp} 
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1 h-7 mt-2 border-0 cursor-pointer"
+                >
+                  Mark Follow-up Closed
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs text-left">
+                <div>
+                  <label className="font-bold text-muted-foreground mb-1 block uppercase">Select Follow-up Checkup Date</label>
+                  <Input 
+                    type="date" 
+                    value={followUpDate} 
+                    onChange={(e) => setFollowUpDate(e.target.value)} 
+                    className="h-8 text-xs bg-background text-foreground border-border" 
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-muted-foreground mb-1 block uppercase">Checkup Reminder Notes</label>
+                  <textarea 
+                    value={followUpReminder} 
+                    onChange={(e) => setFollowUpReminder(e.target.value)} 
+                    rows={2} 
+                    placeholder="e.g. Check leaf buds for recovery and upload 2 clear photos."
+                    className="w-full text-xs rounded-lg border border-border p-2 bg-background text-foreground outline-none focus:ring-1 focus:ring-emerald-500" 
+                  />
+                </div>
+                <Button onClick={saveFollowUp} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1 h-8 border-0 cursor-pointer">
+                  Schedule Follow-up
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Button 
+          onClick={() => { setSelectedConsultationId(null); setActiveConsultation(null); }} 
+          variant="outline" 
+          className="w-full font-bold border-border cursor-pointer bg-transparent text-foreground hover:bg-muted"
+        >
+          Close Workspace & Back
+        </Button>
+      </div>
+
+      {/* Lightbox Dialog */}
+      {lightboxImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4" onClick={() => setLightboxImage(null)}>
+          <div className="relative max-w-3xl max-h-[80vh]">
+            <img src={lightboxImage} className="max-h-[80vh] object-contain rounded-lg border border-border" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

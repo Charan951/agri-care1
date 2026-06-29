@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { sendOtpEmail } from '../utils/email';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'agricare_secret_key_123';
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -141,4 +142,75 @@ export const getMe = async (req: AuthenticatedRequest, res: Response): Promise<v
       gstin: req.user.gstin
     }
   });
+};
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ message: 'Email address is required.' });
+      return;
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      res.status(404).json({ message: 'No registered account found with this email address.' });
+      return;
+    }
+
+    // Generate 6-digit verification code
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store in User document
+    user.resetPasswordOtp = otp;
+    user.resetPasswordOtpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes expiry
+    await user.save();
+
+    // Send the email
+    const emailSent = await sendOtpEmail(user.email, user.name, otp);
+    if (!emailSent) {
+      res.status(500).json({ message: 'Failed to send OTP verification email. Please try again.' });
+      return;
+    }
+
+    res.json({ message: 'A 6-digit reset OTP has been sent to your email address.' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error occurred while requesting password reset.' });
+  }
+};
+
+export const resetPasswordWithOtp = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      res.status(400).json({ message: 'Email, OTP, and new password are required.' });
+      return;
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      res.status(404).json({ message: 'No registered account found with this email address.' });
+      return;
+    }
+
+    if (!user.resetPasswordOtp || user.resetPasswordOtp !== otp) {
+      res.status(400).json({ message: 'Invalid OTP verification code.' });
+      return;
+    }
+
+    if (!user.resetPasswordOtpExpires || user.resetPasswordOtpExpires.getTime() < Date.now()) {
+      res.status(400).json({ message: 'OTP verification code has expired.' });
+      return;
+    }
+
+    // Hash new password and update user record
+    user.password = await bcrypt.hash(newPassword, 10);
+    user.resetPasswordOtp = undefined;
+    user.resetPasswordOtpExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Your password has been reset successfully. Please log in with your new password.' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error occurred while resetting password.' });
+  }
 };

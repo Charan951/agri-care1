@@ -12,6 +12,7 @@ export interface ITicket extends Document {
   description: string;
   images: string[];
   status: 'OPEN' | 'ASSIGNED' | 'IN_PROGRESS' | 'WAITING_FOR_FARMER' | 'RESOLVED' | 'CLOSED';
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH';
   chatHistory: ITicketMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -33,7 +34,13 @@ const ticketSchema = new Schema<ITicket>({
     enum: ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'WAITING_FOR_FARMER', 'RESOLVED', 'CLOSED'],
     default: 'OPEN'
   },
+  priority: {
+    type: String,
+    enum: ['LOW', 'MEDIUM', 'HIGH'],
+    default: 'LOW'
+  },
   chatHistory: [ticketMessageSchema]
 }, { timestamps: true });
 
 export const Ticket = model<ITicket>('Ticket', ticketSchema);
+

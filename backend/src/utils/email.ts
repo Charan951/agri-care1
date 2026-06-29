@@ -67,3 +67,59 @@ export const sendCredentialsEmail = async (
     return false;
   }
 };
+
+export const sendOtpEmail = async (
+  toEmail: string,
+  userName: string,
+  otp: string
+): Promise<boolean> => {
+  console.log(`[AgriCare OTP Request] Attempting to send OTP to ${toEmail}. Code: ${otp}`);
+  
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log(`[SMTP MOCK WARNING] SMTP credentials not set in env. MOCK OTP code for ${toEmail} is: ${otp}`);
+    return true;
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: `"AgriCare Support" <${process.env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: 'AgriCare Portal - Reset Password Verification OTP',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #fcfcfc;">
+          <h2 style="color: #15803d; border-bottom: 2px solid #15803d; padding-bottom: 10px;">Reset Your AgriCare Password</h2>
+          <p>Dear <strong>${userName}</strong>,</p>
+          <p>We received a request to reset your password. Use the verification OTP code below to proceed with the reset. This code is valid for 15 minutes.</p>
+          
+          <div style="background-color: #f3f4f6; text-align: center; padding: 20px; margin: 25px 0; border-radius: 8px; border: 1px dashed #15803d;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #15803d; font-family: monospace;">${otp}</span>
+          </div>
+
+          <p>If you did not request a password reset, please ignore this email. Your password will remain unchanged.</p>
+          
+          <p style="font-size: 12px; color: #9ca3af; margin-top: 40px; border-top: 1px solid #e5e7eb; padding-top: 15px;">
+            This is an automated security notification. Please do not reply directly to this email.
+          </p>
+        </div>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`OTP email sent successfully to ${toEmail}: ${info.messageId}`);
+    return true;
+  } catch (error) {
+    console.error('Error sending OTP email, falling back to mock logging:', error);
+    console.log(`[SMTP FALLBACK] OTP code for ${toEmail} is: ${otp}`);
+    return true;
+  }
+};

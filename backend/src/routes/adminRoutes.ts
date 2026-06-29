@@ -1,37 +1,44 @@
 import { Router } from 'express';
 import { verifyToken, requireRole } from '../middleware/authMiddleware';
+import { getOverviewStats, getAnalyticsData } from '../controllers/adminController';
 import {
-  getOverviewStats,
   getUsers,
   createUser,
   updateUser,
   deleteUser,
+  getMerchantsList,
+  createMerchantRecord,
+  updateMerchantRecord,
+  deleteMerchantRecord
+} from '../controllers/userController';
+import {
   getDiseaseReports,
   createDiseaseReport,
   updateDiseaseReport,
   deleteDiseaseReport,
-  getConsultations,
-  createConsultation,
-  updateConsultation,
-  deleteConsultation,
   getAIPredictions,
   createAIPrediction,
   updateAIPrediction,
-  deleteAIPrediction,
-  getMerchantsList,
-  createMerchantRecord,
-  updateMerchantRecord,
-  deleteMerchantRecord,
+  deleteAIPrediction
+} from '../controllers/reportController';
+import {
+  getConsultations,
+  createConsultation,
+  updateConsultation,
+  deleteConsultation
+} from '../controllers/consultationController';
+import {
   getOrdersList,
   createOrderRecord,
   updateOrderRecord,
-  deleteOrderRecord,
+  deleteOrderRecord
+} from '../controllers/orderController';
+import {
   getPaymentsList,
   createPaymentRecord,
   updatePaymentRecord,
-  deletePaymentRecord,
-  getAnalyticsData,
-} from '../controllers/adminControllers';
+  deletePaymentRecord
+} from '../controllers/paymentController';
 
 const router = Router();
 

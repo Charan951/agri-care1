@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Leaf } from "lucide-react";
-import { useState } from "react";
+import { Leaf, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { IMG } from "@/lib/site";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,10 +19,25 @@ function Login() {
   const [tab, setTab] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [mobile, setMobile] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user) {
+      if (user.role === 'ADMIN' || user.role === 'SUPER_USER') {
+        navigate({ to: '/admin' });
+      } else if (user.role === 'FARMER') {
+        navigate({ to: '/dashboard' });
+      } else if (user.role === 'AGRI_SPECIALIST') {
+        navigate({ to: '/specialist' });
+      } else if (user.role === 'MERCHANT') {
+        navigate({ to: '/merchant' });
+      }
+    }
+  }, [user, isAuthenticated, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,14 +128,23 @@ function Login() {
                     <label className="text-sm font-semibold">Password</label>
                     <Link to="/forgot-password" className="text-xs font-semibold text-brand hover:underline">Forgot?</Link>
                   </div>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="mt-1.5 h-11 w-full rounded-lg border border-border bg-card px-4 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-                    placeholder="••••••••"
-                  />
+                  <div className="relative mt-1.5">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="h-11 w-full rounded-lg border border-border bg-card pl-4 pr-11 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-muted-foreground hover:text-foreground cursor-pointer border-0 bg-transparent"
+                    >
+                      {showPassword ? <Eye className="h-4.5 w-4.5" /> : <EyeOff className="h-4.5 w-4.5" />}
+                    </button>
+                  </div>
                 </div>
               </>
             ) : (

@@ -13,44 +13,59 @@ import {
   getWishlist,
   addToWishlist,
   removeFromWishlist,
-  getTickets,
+  getCustomerDashboardSummary
+} from '../controllers/userController';
+import {
+  getFarmerTickets,
   createTicket,
   getTicketChat,
-  sendTicketMessage,
-  updateTicketStatus,
+  sendFarmerTicketMessage,
+  updateTicketStatus
+} from '../controllers/ticketController';
+import {
   runAIDetection,
   getDetectionHistory,
-  getConsultations,
+  getWeather,
+  getKnowledgeCenter
+} from '../controllers/reportController';
+import {
+  getFarmerConsultations,
   requestConsultation,
   getConsultationDetails,
   sendConsultationMessage,
   sendMockSpecialistMessage,
-  rateSpecialist,
+  rateSpecialist
+} from '../controllers/consultationController';
+import {
   getProducts,
   getProductDetails,
-  submitProductReview,
+  submitProductReview
+} from '../controllers/productController';
+import {
   processCheckout,
+  getFarmerOrders,
+  getOrderDetails,
+  cancelOrder,
+  requestOrderReturn
+} from '../controllers/orderController';
+import {
   createCheckoutPaymentOrder,
   verifyCheckoutPayment,
   createConsultationPaymentOrder,
   verifyConsultationPayment,
-  getOrders,
-  getOrderDetails,
-  cancelOrder,
-  requestOrderReturn,
-  getPayments,
-  getWeather,
-  getKnowledgeCenter,
-  getCustomerDashboardSummary,
-  getNotifications,
+  getFarmerPayments
+} from '../controllers/paymentController';
+import {
+  getFarmerNotifications,
   markNotificationsAsRead
-} from '../controllers/customerController';
+} from '../controllers/notificationController';
 
 const router = Router();
 
 // Public Marketplace routes
 router.get('/products', getProducts);
 router.get('/products/:id', getProductDetails);
+
 
 // Secure all customer routes with Farmer check
 router.use(verifyToken);
@@ -79,10 +94,10 @@ router.post('/wishlist', addToWishlist);
 router.delete('/wishlist/:productId', removeFromWishlist);
 
 // Support Tickets
-router.get('/tickets', getTickets);
+router.get('/tickets', getFarmerTickets);
 router.post('/tickets', createTicket);
 router.get('/tickets/:id', getTicketChat);
-router.post('/tickets/:id/message', sendTicketMessage);
+router.post('/tickets/:id/message', sendFarmerTicketMessage);
 router.put('/tickets/:id/status', updateTicketStatus);
 
 // AI Disease Detection
@@ -90,7 +105,7 @@ router.post('/disease-detection', runAIDetection);
 router.get('/disease-detection/history', getDetectionHistory);
 
 // Consultations
-router.get('/consultations', getConsultations);
+router.get('/consultations', getFarmerConsultations);
 router.post('/consultations', requestConsultation);
 router.post('/consultations/create-order', createConsultationPaymentOrder);
 router.post('/consultations/verify', verifyConsultationPayment);
@@ -106,13 +121,13 @@ router.post('/products/:id/review', submitProductReview);
 router.post('/checkout', processCheckout);
 router.post('/checkout/create-order', createCheckoutPaymentOrder);
 router.post('/checkout/verify', verifyCheckoutPayment);
-router.get('/orders', getOrders);
+router.get('/orders', getFarmerOrders);
 router.get('/orders/:id', getOrderDetails);
 router.post('/orders/:id/cancel', cancelOrder);
 router.post('/orders/:id/return', requestOrderReturn);
 
 // Payments
-router.get('/payments', getPayments);
+router.get('/payments', getFarmerPayments);
 
 // Weather & Advisory
 router.get('/weather', getWeather);
@@ -121,7 +136,7 @@ router.get('/weather', getWeather);
 router.get('/knowledge-center', getKnowledgeCenter);
 
 // Notifications
-router.get('/notifications', getNotifications);
+router.get('/notifications', getFarmerNotifications);
 router.put('/notifications/read', markNotificationsAsRead);
 
 export default router;

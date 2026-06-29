@@ -15,6 +15,7 @@ export interface UserProfile {
   gstin?: string;
   landAcres?: number;
   storeProfile?: any;
+  availabilityStatus?: string;
 }
 
 interface AuthContextType {

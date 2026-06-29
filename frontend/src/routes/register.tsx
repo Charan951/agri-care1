@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Leaf } from "lucide-react";
-import { useState } from "react";
+import { Leaf, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { IMG } from "@/lib/site";
 import { useAuth } from "@/hooks/useAuth";
@@ -23,10 +23,25 @@ function Register() {
   const [state, setState] = useState("");
   const [land, setLand] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   
-  const { registerFarmer } = useAuth();
+  const { registerFarmer, user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user) {
+      if (user.role === 'ADMIN' || user.role === 'SUPER_USER') {
+        navigate({ to: '/admin' });
+      } else if (user.role === 'FARMER') {
+        navigate({ to: '/dashboard' });
+      } else if (user.role === 'AGRI_SPECIALIST') {
+        navigate({ to: '/specialist' });
+      } else if (user.role === 'MERCHANT') {
+        navigate({ to: '/merchant' });
+      }
+    }
+  }, [user, isAuthenticated, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +64,7 @@ function Register() {
 
     if (result.success) {
       toast.success("Account created successfully!");
-      navigate({ to: '/' });
+      navigate({ to: '/dashboard' });
     } else {
       toast.error(result.message);
     }
@@ -132,17 +147,26 @@ function Register() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="text-sm font-semibold">Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="At least 8 characters"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="mt-1.5 h-11 w-full rounded-lg border border-border bg-card px-4 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-                  />
-                </div>
+                 <div>
+                   <label className="text-sm font-semibold">Password</label>
+                   <div className="relative mt-1.5">
+                     <input
+                       type={showPassword ? "text" : "password"}
+                       required
+                       placeholder="At least 8 characters"
+                       value={password}
+                       onChange={(e) => setPassword(e.target.value)}
+                       className="h-11 w-full rounded-lg border border-border bg-card pl-4 pr-11 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+                     />
+                     <button
+                       type="button"
+                       onClick={() => setShowPassword(!showPassword)}
+                       className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-muted-foreground hover:text-foreground cursor-pointer border-0 bg-transparent"
+                     >
+                       {showPassword ? <Eye className="h-4.5 w-4.5" /> : <EyeOff className="h-4.5 w-4.5" />}
+                     </button>
+                   </div>
+                 </div>
                 <label className="flex items-start gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" required className="mt-0.5 h-4 w-4 rounded border-border accent-[var(--brand)]" />
                   I agree to the <Link to="/terms" className="text-brand hover:underline">terms</Link> and <Link to="/privacy" className="text-brand hover:underline">privacy policy</Link>.

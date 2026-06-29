@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { verifyToken, requireRole } from '../middleware/authMiddleware';
 import {
+  getSpecialistProfile,
+  updateSpecialistProfile,
+  changePassword
+} from '../controllers/userController';
+import {
   getSpecialistDashboardStats,
   getAssignedConsultations,
   getConsultationDetails,
@@ -13,11 +18,8 @@ import {
   sendSpecialistMessage,
   manageFollowUp,
   closeFollowUp,
-  getSpecialistAnalytics,
-  getSpecialistProfile,
-  updateSpecialistProfile
-} from '../controllers/specialistController';
-import { changePassword } from '../controllers/customerController'; // reuse change password
+  getSpecialistAnalytics
+} from '../controllers/consultationController';
 
 const router = Router();
 

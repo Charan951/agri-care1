@@ -66,6 +66,8 @@ export interface IUser extends Document {
       invoiceNotes?: string;
     };
   };
+  resetPasswordOtp?: string;
+  resetPasswordOtpExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -86,6 +88,8 @@ const userSchema = new Schema<IUser>(
       enum: ['ACTIVE', 'PENDING', 'SUSPENDED'],
       default: 'ACTIVE',
     },
+    resetPasswordOtp: { type: String },
+    resetPasswordOtpExpires: { type: Date },
     workingRegion: { type: String },
     specialization: { type: String },
     assignedSpecialists: [{ type: Schema.Types.ObjectId, ref: 'User' }],
