@@ -3,7 +3,7 @@ import { ShoppingCart, Trash2, CheckCircle2, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-
+//ji
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
     if ((window as any).Razorpay) {
