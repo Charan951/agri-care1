@@ -107,4 +107,10 @@ const consultationSchema = new Schema<IConsultation>(
   { timestamps: true }
 );
 
+consultationSchema.index({ specialistId: 1, status: 1, createdAt: -1 });
+consultationSchema.index({ specialistId: 1, updatedAt: -1 });
+consultationSchema.index({ farmerId: 1, status: 1, createdAt: -1 });
+consultationSchema.index({ farmerId: 1, createdAt: -1 });
+
 export const Consultation = model<IConsultation>('Consultation', consultationSchema);
+

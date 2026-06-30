@@ -49,7 +49,7 @@ export function MerchantMonitoringTab() {
       const response = await fetch("/api/admin/merchants");
       if (response.ok) {
         const data = await response.json();
-        setMerchants(data);
+        setMerchants(data.merchants || data);
       } else {
         toast.error("Failed to load merchants list.");
       }

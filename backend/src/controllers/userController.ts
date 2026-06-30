@@ -11,6 +11,7 @@ import { DiseaseReport } from '../models/DiseaseReport';
 import { Product } from '../models/Product';
 import { MerchantNotification } from '../models/MerchantNotification';
 import { CustomerNote } from '../models/CustomerNote';
+import { emitToRoom } from '../utils/socket';
 
 // ==========================================
 // 1. PROFILE DETAILS
@@ -119,20 +120,34 @@ export const changePassword = async (req: AuthenticatedRequest, res: Response): 
 // ==========================================
 export const getUsers = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { role, search } = req.query;
+    const { role, search, page = 1, limit = 20 } = req.query;
     const query: any = {};
 
     if (role) query.role = role;
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } }
-      ];
+      query.$text = { $search: search as string };
     }
 
-    const users = await User.find(query).sort({ createdAt: -1 });
-    res.json(users);
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const users = await User.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    
+    const total = await User.countDocuments(query);
+
+    res.json({
+      users,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -229,33 +244,67 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response): Prom
 // ==========================================
 export const getMerchantsList = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const merchants = await User.find({ role: 'MERCHANT' }).sort({ createdAt: -1 });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
 
-    const enrichedMerchants = await Promise.all(
-      merchants.map(async (m) => {
-        const orderStats = await Order.aggregate([
-          { $match: { merchantId: m._id } },
-          { $group: {
-              _id: null,
-              totalOrders: { $sum: 1 },
-              totalSales: { $sum: '$totalAmount' },
-              completedOrders: { $sum: { $cond: [{ $eq: ['$status', 'DELIVERED'] }, 1, 0] } }
+    const merchantAggregation = await User.aggregate([
+      { $match: { role: 'MERCHANT' } },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
+      {
+        $lookup: {
+          from: 'orders',
+          localField: '_id',
+          foreignField: 'merchantId',
+          as: 'orders'
+        }
+      },
+      {
+        $addFields: {
+          totalOrders: { $size: '$orders' },
+          totalSales: { $sum: '$orders.totalAmount' },
+          completedOrders: {
+            $size: {
+              $filter: {
+                input: '$orders',
+                as: 'order',
+                cond: { $eq: ['$$order.status', 'DELIVERED'] }
+              }
             }
           }
-        ]);
+        }
+      },
+      {
+        $project: {
+          password: 0,
+          orders: 0
+        }
+      }
+    ]);
 
-        return {
-          user: m,
-          sales: orderStats[0]?.totalSales || 0,
-          orders: orderStats[0]?.totalOrders || 0,
-          fulfillmentRate: orderStats[0]?.totalOrders 
-            ? `${Math.round(((orderStats[0]?.completedOrders || 0) / orderStats[0]?.totalOrders) * 100)}%`
-            : '0%'
-        };
-      })
-    );
+    const total = await User.countDocuments({ role: 'MERCHANT' });
 
-    res.json(enrichedMerchants);
+    const enrichedMerchants = merchantAggregation.map((m) => ({
+      user: m,
+      sales: m.totalSales || 0,
+      orders: m.totalOrders || 0,
+      fulfillmentRate: m.totalOrders 
+        ? `${Math.round(((m.completedOrders || 0) / m.totalOrders) * 100)}%`
+        : '0%'
+    }));
+
+    res.json({
+      merchants: enrichedMerchants,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -438,6 +487,8 @@ export const addToCart = async (req: AuthenticatedRequest, res: Response): Promi
     await user.save();
     const updatedUser = await User.findById(req.user?._id).populate('cart.product');
 
+    emitToRoom(`user_${user._id}`, 'cart_updated', { cart: updatedUser?.cart || [] });
+
     res.json({ message: 'Added to cart successfully', cart: updatedUser?.cart || [] });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error adding to cart' });
@@ -456,6 +507,8 @@ export const removeFromCart = async (req: AuthenticatedRequest, res: Response): 
     user.cart = user.cart.filter((item: any) => item.product.toString() !== productId);
     await user.save();
     const updatedUser = await User.findById(req.user?._id).populate('cart.product');
+
+    emitToRoom(`user_${user._id}`, 'cart_updated', { cart: updatedUser?.cart || [] });
 
     res.json({ message: 'Removed from cart successfully', cart: updatedUser?.cart || [] });
   } catch (error: any) {
@@ -494,6 +547,8 @@ export const addToWishlist = async (req: AuthenticatedRequest, res: Response): P
     await user.save();
     const updatedUser = await User.findById(req.user?._id).populate('wishlist');
 
+    emitToRoom(`user_${user._id}`, 'wishlist_updated', { wishlist: updatedUser?.wishlist || [] });
+
     res.json({ message: 'Added to wishlist', wishlist: updatedUser?.wishlist || [] });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error adding to wishlist' });
@@ -513,6 +568,8 @@ export const removeFromWishlist = async (req: AuthenticatedRequest, res: Respons
     await user.save();
     const updatedUser = await User.findById(req.user?._id).populate('wishlist');
 
+    emitToRoom(`user_${user._id}`, 'wishlist_updated', { wishlist: updatedUser?.wishlist || [] });
+
     res.json({ message: 'Removed from wishlist', wishlist: updatedUser?.wishlist || [] });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error removing from wishlist' });
@@ -530,19 +587,40 @@ export const getCustomerDashboardSummary = async (req: AuthenticatedRequest, res
       return;
     }
 
-    const openTicketsCount = await Ticket.countDocuments({ farmerId, status: { $ne: 'CLOSED' } });
-    const activeConsultationsCount = await Consultation.countDocuments({ farmerId, status: { $in: ['PENDING', 'ACTIVE'] } });
-    const recentOrders = await Order.find({ farmerId }).sort({ createdAt: -1 }).limit(3);
-    const orderStatusSummary = await Order.aggregate([
-      { $match: { farmerId } },
-      { $group: { _id: '$status', count: { $sum: 1 } } }
+    const [
+      openTicketsCount,
+      activeConsultationsCount,
+      recentOrders,
+      orderStatusSummary,
+      recentReports,
+      recommendedProducts,
+      ongoingOrders,
+      ongoingConsultations
+    ] = await Promise.all([
+      Ticket.countDocuments({ farmerId, status: { $ne: 'CLOSED' } }),
+      Consultation.countDocuments({ farmerId, status: { $in: ['PENDING', 'ACTIVE'] } }),
+      Order.find({ farmerId }).sort({ createdAt: -1 }).limit(3),
+      Order.aggregate([
+        { $match: { farmerId } },
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
+      DiseaseReport.find({ farmerId })
+        .populate('assignedSpecialistId', 'name specialization rating mobile')
+        .sort({ createdAt: -1 })
+        .limit(3),
+      Product.find().limit(4),
+      Order.find({
+        farmerId,
+        status: { $nin: ['DELIVERED', 'CANCELLED', 'RETURNED'] }
+      }).sort({ createdAt: -1 }),
+      Consultation.find({
+        farmerId,
+        status: { $in: ['PENDING', 'ACTIVE', 'ESCALATED'] }
+      })
+        .populate('specialistId', 'name specialization rating mobile')
+        .populate('reportId')
+        .sort({ createdAt: -1 })
     ]);
-
-    const recentReports = await DiseaseReport.find({ farmerId })
-      .populate('assignedSpecialistId', 'name specialization rating mobile')
-      .sort({ createdAt: -1 })
-      .limit(3);
-    const recommendedProducts = await Product.find().limit(4);
 
     const weatherInfo = {
       temp: '29°C',
@@ -562,6 +640,8 @@ export const getCustomerDashboardSummary = async (req: AuthenticatedRequest, res
       }, {} as Record<string, number>),
       recentReports,
       recommendedProducts,
+      ongoingOrders,
+      ongoingConsultations,
       weatherInfo
     });
   } catch (error: any) {
@@ -575,108 +655,198 @@ export const getCustomerDashboardSummary = async (req: AuthenticatedRequest, res
 export const getMerchantDashboardStats = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const merchantId = new Types.ObjectId(req.user?._id || req.user?.id);
-
-    const products = await Product.find({ merchantId });
-    const totalProducts = products.length;
-    const activeProducts = products.filter(p => p.isEnabled && p.status === 'APPROVED').length;
-    const outOfStock = products.filter(p => p.stock === 0).length;
-    const lowStock = products.filter(p => p.stock > 0 && p.stock <= (p.lowStockThreshold || 5)).length;
-
-    const orders = await Order.find({ merchantId });
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
-    const todayOrders = orders.filter(o => o.createdAt >= todayStart).length;
-    const pendingOrders = orders.filter(o => o.status === 'PENDING').length;
-    const completedOrders = orders.filter(o => o.status === 'DELIVERED').length;
-    const cancelledOrders = orders.filter(o => o.status === 'CANCELLED').length;
-
-    const totalRevenue = orders
-      .filter(o => o.status !== 'CANCELLED' && o.paymentStatus === 'PAID')
-      .reduce((sum, o) => sum + o.totalAmount, 0);
-
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const monthlyRevenue = orders
-      .filter(o => o.createdAt >= monthStart && o.status !== 'CANCELLED' && o.paymentStatus === 'PAID')
-      .reduce((sum, o) => sum + o.totalAmount, 0);
 
-    const bestSellers = await Order.aggregate([
-      { $match: { merchantId, status: { $ne: 'CANCELLED' } } },
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.product',
-          totalQty: { $sum: '$items.quantity' },
-          totalSales: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+    // Execute all queries in parallel
+    const [
+      productStats,
+      orderStats,
+      bestSellers,
+      reviewStats,
+      trends,
+      recentNotifications
+    ] = await Promise.all([
+      // Product stats using aggregation
+      Product.aggregate([
+        { $match: { merchantId } },
+        {
+          $facet: {
+            total: [{ $count: 'count' }],
+            active: [
+              { $match: { isEnabled: true, status: 'APPROVED' } },
+              { $count: 'count' }
+            ],
+            outOfStock: [
+              { $match: { stock: 0 } },
+              { $count: 'count' }
+            ],
+            lowStock: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $gt: ['$stock', 0] },
+                      { $lte: ['$stock', { $ifNull: ['$lowStockThreshold', 5] }] }
+                    ]
+                  }
+                }
+              },
+              { $count: 'count' }
+            ]
+          }
         }
-      },
-      { $sort: { totalQty: -1 } },
-      { $limit: 5 }
+      ]),
+      // Order stats using aggregation
+      Order.aggregate([
+        { $match: { merchantId } },
+        {
+          $facet: {
+            todayOrders: [
+              { $match: { createdAt: { $gte: todayStart } } },
+              { $count: 'count' }
+            ],
+            statusCounts: [
+              { $group: { _id: '$status', count: { $sum: 1 } } }
+            ],
+            totalRevenue: [
+              { $match: { status: { $ne: 'CANCELLED' }, paymentStatus: 'PAID' } },
+              { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+            ],
+            monthlyRevenue: [
+              { $match: { createdAt: { $gte: monthStart }, status: { $ne: 'CANCELLED' }, paymentStatus: 'PAID' } },
+              { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+            ]
+          }
+        }
+      ]),
+      // Best sellers with product image using lookup
+      Order.aggregate([
+        { $match: { merchantId, status: { $ne: 'CANCELLED' } } },
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.product',
+            totalQty: { $sum: '$items.quantity' },
+            totalSales: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+          }
+        },
+        { $sort: { totalQty: -1 } },
+        { $limit: 5 },
+        {
+          $lookup: {
+            from: 'products',
+            let: { productName: '$_id', merchantId: merchantId },
+            pipeline: [
+              { $match: { $expr: { $and: [{ $eq: ['$merchantId', '$$merchantId'] }, { $eq: ['$name', '$$productName'] }] } } },
+              { $project: { imageUrl: 1 } }
+            ],
+            as: 'product'
+          }
+        },
+        {
+          $project: {
+            name: '$_id',
+            quantity: '$totalQty',
+            sales: '$totalSales',
+            imageUrl: { $ifNull: [{ $arrayElemAt: ['$product.imageUrl', 0] }, ''] }
+          }
+        }
+      ]),
+      // Review stats using aggregation
+      Product.aggregate([
+        { $match: { merchantId, 'reviews.0': { $exists: true } } },
+        { $unwind: '$reviews' },
+        {
+          $facet: {
+            ratingStats: [
+              {
+                $group: {
+                  _id: null,
+                  totalRating: { $sum: '$reviews.rating' },
+                  reviewCount: { $sum: 1 },
+                  ratings: {
+                    $push: '$reviews.rating'
+                  }
+                }
+              }
+            ],
+            recentReviews: [
+              { $sort: { 'reviews.date': -1 } },
+              { $limit: 5 },
+              {
+                $project: {
+                  productName: '$name',
+                  reviewerName: '$reviews.name',
+                  rating: '$reviews.rating',
+                  comment: '$reviews.comment',
+                  date: '$reviews.date'
+                }
+              }
+            ]
+          }
+        }
+      ]),
+      // Sales trends
+      Order.aggregate([
+        {
+          $match: {
+            merchantId,
+            status: { $ne: 'CANCELLED' },
+            paymentStatus: 'PAID'
+          }
+        },
+        {
+          $group: {
+            _id: {
+              year: { $year: '$createdAt' },
+              month: { $month: '$createdAt' }
+            },
+            sales: { $sum: '$totalAmount' },
+            orders: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.year': -1, '_id.month': -1 } },
+        { $limit: 6 }
+      ]),
+      // Recent notifications
+      MerchantNotification.find({ merchantId })
+        .sort({ createdAt: -1 })
+        .limit(5)
     ]);
 
-    const bestSellingProducts = [];
-    for (const item of bestSellers) {
-      const prod = await Product.findOne({ name: item._id, merchantId });
-      bestSellingProducts.push({
-        name: item._id,
-        quantity: item.totalQty,
-        sales: item.totalSales,
-        imageUrl: prod?.imageUrl || ''
-      });
-    }
+    const totalProducts = productStats[0]?.total[0]?.count || 0;
+    const activeProducts = productStats[0]?.active[0]?.count || 0;
+    const outOfStock = productStats[0]?.outOfStock[0]?.count || 0;
+    const lowStock = productStats[0]?.lowStock[0]?.count || 0;
 
-    let totalRating = 0;
-    let reviewCount = 0;
-    const ratingsDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-    const recentReviews = [];
+    const todayOrders = orderStats[0]?.todayOrders[0]?.count || 0;
+    const statusCounts = orderStats[0]?.statusCounts || [];
+    const pendingOrders = statusCounts.find((s: any) => s._id === 'PENDING')?.count || 0;
+    const completedOrders = statusCounts.find((s: any) => s._id === 'DELIVERED')?.count || 0;
+    const cancelledOrders = statusCounts.find((s: any) => s._id === 'CANCELLED')?.count || 0;
+    const totalRevenue = orderStats[0]?.totalRevenue[0]?.total || 0;
+    const monthlyRevenue = orderStats[0]?.monthlyRevenue[0]?.total || 0;
 
-    for (const p of products) {
-      if (p.reviews && p.reviews.length > 0) {
-        for (const r of p.reviews) {
-          totalRating += r.rating;
-          reviewCount++;
-          const roundedRating = Math.round(r.rating) as 5 | 4 | 3 | 2 | 1;
-          if (ratingsDistribution[roundedRating] !== undefined) {
-            ratingsDistribution[roundedRating]++;
-          }
-          if (recentReviews.length < 5) {
-            recentReviews.push({
-              productName: p.name,
-              reviewerName: r.name,
-              rating: r.rating,
-              comment: r.comment,
-              date: r.date,
-            });
-          }
-        }
-      }
-    }
-
+    const ratingStats = reviewStats[0]?.ratingStats[0];
+    const reviewCount = ratingStats?.reviewCount || 0;
+    const totalRating = ratingStats?.totalRating || 0;
     const averageRating = reviewCount > 0 ? Number((totalRating / reviewCount).toFixed(1)) : 5.0;
 
-    const trends = await Order.aggregate([
-      {
-        $match: {
-          merchantId,
-          status: { $ne: 'CANCELLED' },
-          paymentStatus: 'PAID'
+    // Calculate ratings distribution
+    const ratingsDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    if (ratingStats?.ratings) {
+      ratingStats.ratings.forEach((rating: number) => {
+        const roundedRating = Math.round(rating) as 5 | 4 | 3 | 2 | 1;
+        if (ratingsDistribution[roundedRating] !== undefined) {
+          ratingsDistribution[roundedRating]++;
         }
-      },
-      {
-        $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' }
-          },
-          sales: { $sum: '$totalAmount' },
-          orders: { $sum: 1 }
-        }
-      },
-      { $sort: { '_id.year': -1, '_id.month': -1 } },
-      { $limit: 6 }
-    ]);
+      });
+    }
+    const recentReviews = reviewStats[0]?.recentReviews || [];
 
     const salesTrend = trends.reverse().map(t => {
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -686,10 +856,6 @@ export const getMerchantDashboardStats = async (req: AuthenticatedRequest, res: 
         orders: t.orders
       };
     });
-
-    const recentNotifications = await MerchantNotification.find({ merchantId })
-      .sort({ createdAt: -1 })
-      .limit(5);
 
     res.json({
       stats: {
@@ -706,7 +872,7 @@ export const getMerchantDashboardStats = async (req: AuthenticatedRequest, res: 
         averageRating,
         reviewCount
       },
-      bestSellingProducts,
+      bestSellingProducts: bestSellers,
       recentReviews,
       ratingsDistribution,
       salesTrend,
@@ -762,9 +928,14 @@ export const updateStoreProfile = async (req: AuthenticatedRequest, res: Respons
 
 export const getMerchantCustomers = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
     const merchantId = new Types.ObjectId(req.user?._id || req.user?.id);
 
-    const orders = await Order.aggregate([
+    // First, get all orders grouped by farmer
+    const orderStats = await Order.aggregate([
       { $match: { merchantId } },
       {
         $group: {
@@ -776,15 +947,22 @@ export const getMerchantCustomers = async (req: AuthenticatedRequest, res: Respo
       }
     ]);
 
-    const enrichedCustomers = [];
-    for (const o of orders) {
-      if (!o._id) continue;
-      const farmer = await User.findById(o._id).select('name email mobile savedAddresses');
-      if (!farmer) continue;
+    const farmerIds = orderStats.map(o => o._id);
+    
+    // Get all farmers in one query
+    const farmers = await User.find({ _id: { $in: farmerIds } }).select('name email mobile savedAddresses');
+    const farmerMap = new Map(farmers.map(f => [f._id.toString(), f]));
 
-      const noteRecord = await CustomerNote.findOne({ merchantId, farmerId: o._id });
+    // Get all notes in one query
+    const notes = await CustomerNote.find({ merchantId, farmerId: { $in: farmerIds } });
+    const noteMap = new Map(notes.map(n => [n.farmerId.toString(), n.note]));
 
-      enrichedCustomers.push({
+    // Build response
+    const customers = orderStats.map(o => {
+      const farmer = farmerMap.get(o._id.toString());
+      if (!farmer) return null;
+
+      return {
         _id: farmer._id,
         name: farmer.name,
         email: farmer.email,
@@ -793,12 +971,27 @@ export const getMerchantCustomers = async (req: AuthenticatedRequest, res: Respo
         totalSpent: o.totalSpent,
         purchaseFrequency: o.orderCount,
         lastOrderDate: o.lastOrderDate,
-        notes: noteRecord?.note || '',
-      });
-    }
+        notes: noteMap.get(o._id.toString()) || ''
+      };
+    }).filter(Boolean);
 
-    res.json(enrichedCustomers);
+    // Sort by last order date descending
+    customers.sort((a, b) => new Date(b!.lastOrderDate).getTime() - new Date(a!.lastOrderDate).getTime());
+
+    const total = customers.length;
+    const paginatedCustomers = customers.slice(skip, skip + limitNum);
+
+    res.json({
+      customers: paginatedCustomers,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (err: any) {
+    console.error('Error in getMerchantCustomers:', err);
     res.status(500).json({ message: 'Failed to load customers list', error: err.message });
   }
 };

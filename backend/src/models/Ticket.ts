@@ -42,5 +42,9 @@ const ticketSchema = new Schema<ITicket>({
   chatHistory: [ticketMessageSchema]
 }, { timestamps: true });
 
+ticketSchema.index({ farmerId: 1, status: 1, createdAt: -1 });
+ticketSchema.index({ status: 1, priority: 1, createdAt: -1 });
+ticketSchema.index({ title: 'text', description: 'text' });
+
 export const Ticket = model<ITicket>('Ticket', ticketSchema);
 

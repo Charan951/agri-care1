@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 export function PaymentsTab() {
@@ -22,9 +23,24 @@ export function PaymentsTab() {
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     fetchPayments();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleOrderUpdated = () => {
+      fetchPayments();
+    };
+
+    socket.on("order_updated", handleOrderUpdated);
+    return () => {
+      socket.off("order_updated", handleOrderUpdated);
+    };
+  }, [socket]);
 
   if (loading) {
     return (

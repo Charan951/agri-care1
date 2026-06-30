@@ -10,27 +10,54 @@ import mongoose from 'mongoose';
 // ==========================================
 export const getTicketsList = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { search, status, priority } = req.query;
+    const { search, status, priority, page = 1, limit = 20 } = req.query;
     const query: any = {};
 
     if (status) query.status = status;
     if (priority) query.priority = priority;
 
-    const tickets = await Ticket.find(query)
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    let ticketsQuery = Ticket.find(query)
       .populate('farmerId', 'name email mobile role')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
     if (search) {
-      const filtered = tickets.filter(t => 
-        t.title.toLowerCase().includes(String(search).toLowerCase()) ||
-        t.description.toLowerCase().includes(String(search).toLowerCase()) ||
-        (t.farmerId as any)?.name.toLowerCase().includes(String(search).toLowerCase())
-      );
-      res.json(filtered);
-      return;
+      const searchRegEx = new RegExp(String(search), 'i');
+      ticketsQuery = Ticket.find({
+        ...query,
+        $or: [
+          { title: searchRegEx },
+          { description: searchRegEx }
+        ]
+      })
+        .populate({
+          path: 'farmerId',
+          match: { $or: [{ name: searchRegEx }] },
+          select: 'name email mobile role'
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum);
     }
 
-    res.json(tickets);
+    const tickets = await ticketsQuery;
+    const filteredTickets = search ? tickets.filter(t => t.farmerId) : tickets;
+    const total = await Ticket.countDocuments(query);
+
+    res.json({
+      tickets: filteredTickets,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -51,6 +78,7 @@ export const createTicketRecord = async (req: AuthenticatedRequest, res: Respons
     });
 
     await newTicket.save();
+    emitToRoom('role_ADMIN', 'new_ticket_created', { ticketId: newTicket._id });
     res.status(201).json({ message: 'Ticket created successfully.', ticket: newTicket });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -116,8 +144,26 @@ export const deleteTicketRecord = async (req: AuthenticatedRequest, res: Respons
 // ==========================================
 export const getFarmerTickets = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const tickets = await Ticket.find({ farmerId: req.user?._id }).sort({ createdAt: -1 });
-    res.json({ tickets });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const tickets = await Ticket.find({ farmerId: req.user?._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    const total = await Ticket.countDocuments({ farmerId: req.user?._id });
+
+    res.json({
+      tickets,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching tickets' });
   }
@@ -242,6 +288,8 @@ export const createMerchantTicket = async (req: AuthenticatedRequest, res: Respo
       chatHistory: [],
     });
 
+    emitToRoom('role_ADMIN', 'new_ticket_created', { ticketId: newTicket._id });
+
     res.status(201).json({ message: 'Support ticket raised successfully', ticket: newTicket });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to raise ticket', error: err.message });
@@ -267,6 +315,9 @@ export const sendMerchantTicketMessage = async (req: AuthenticatedRequest, res: 
 
     ticket.status = 'IN_PROGRESS';
     await ticket.save();
+
+    emitToRoom('role_ADMIN', 'ticket_updated', { ticketId: id });
+    emitToRoom(`user_${ticket.farmerId}`, 'ticket_chat_updated', { ticketId: id, chatHistory: ticket.chatHistory });
 
     res.status(201).json({ message: 'Message sent successfully', ticket });
   } catch (err: any) {

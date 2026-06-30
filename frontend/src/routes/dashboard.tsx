@@ -7,6 +7,7 @@ import {
   HelpCircle, LogOut, Menu, Sparkles, Bell
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 // Tab imports
@@ -54,7 +55,16 @@ function CustomerDashboard() {
 
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [language, setLanguage] = useState<"en" | "te">("en");
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev[activeTab]) return prev;
+      return { ...prev, [activeTab]: true };
+    });
+  }, [activeTab]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
 
   const [cartItemsCount, setCartItemsCount] = useState<number>(0);
   const [wishlistItemsCount, setWishlistItemsCount] = useState<number>(0);
@@ -81,11 +91,42 @@ function CustomerDashboard() {
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     if (isAuthenticated && user?.role === "FARMER") {
       fetchCartAndWishlistCount();
     }
   }, [isAuthenticated, user]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleCartUpdated = (data: any) => {
+      const items = data.cart || [];
+      setCartItemsCount(items.reduce((sum: number, item: any) => sum + item.quantity, 0));
+    };
+
+    const handleWishlistUpdated = (data: any) => {
+      const items = data.wishlist || [];
+      setWishlistItemsCount(items.length);
+      setWishlistIds(items.map((item: any) => item._id));
+    };
+
+    const handleOrderUpdated = () => {
+      fetchCartAndWishlistCount();
+    };
+
+    socket.on("cart_updated", handleCartUpdated);
+    socket.on("wishlist_updated", handleWishlistUpdated);
+    socket.on("order_updated", handleOrderUpdated);
+
+    return () => {
+      socket.off("cart_updated", handleCartUpdated);
+      socket.off("wishlist_updated", handleWishlistUpdated);
+      socket.off("order_updated", handleOrderUpdated);
+    };
+  }, [socket]);
 
   // Shared states for redirection actions
   const [selectedCrop, setSelectedCrop] = useState<string>("Paddy (Rice)");
@@ -95,6 +136,7 @@ function CustomerDashboard() {
   
   const [selectedConsultation, setSelectedConsultation] = useState<any>(null);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [autoOpenBookingReportId, setAutoOpenBookingReportId] = useState<string>("");
 
   const setDetectState = (state: { cropName: string; imageUrl: string; detectWorkflowStep: any; scanResult: any }) => {
     setSelectedCrop(state.cropName);
@@ -133,7 +175,11 @@ function CustomerDashboard() {
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       
       {/* SIDEBAR FOR DESKTOP */}
-      <aside className="w-68 h-full border-r border-border bg-card hidden lg:flex flex-col justify-between p-4 flex-shrink-0">
+      <aside className={`hidden lg:flex h-full border-r border-border bg-card flex-col justify-between flex-shrink-0 transition-all duration-300 ${
+        isDesktopSidebarOpen
+          ? "w-68 p-4 opacity-100"
+          : "w-0 p-0 border-r-0 overflow-hidden opacity-0 pointer-events-none"
+      }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           <div className="space-y-6">
             <div className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border pb-4">
@@ -156,6 +202,9 @@ function CustomerDashboard() {
                     onClick={() => {
                       setActiveTab(item.id);
                       setIsSidebarOpen(false);
+                      if (window.innerWidth < 1024) {
+                        setIsDesktopSidebarOpen(false);
+                      }
                     }}
                     className={`flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors border-0 ${
                       isActive
@@ -263,8 +312,18 @@ function CustomerDashboard() {
         {/* HEADER */}
         <header className="flex h-14 items-center justify-between border-b border-border bg-card/85 backdrop-blur px-6 flex-shrink-0 relative">
           <div className="flex items-center gap-3">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-1 hover:bg-muted rounded-md lg:hidden border-0 bg-transparent cursor-pointer">
-              <Menu className="h-5.5 w-5.5 text-foreground" />
+            <button
+              onClick={() => {
+                if (window.innerWidth >= 1024) {
+                  setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
+                } else {
+                  setIsSidebarOpen(true);
+                }
+              }}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground cursor-pointer hover:bg-muted"
+              title="Toggle Sidebar"
+            >
+              <Menu className="h-4.5 w-4.5" />
             </button>
           </div>
 
@@ -291,115 +350,153 @@ function CustomerDashboard() {
         </header>
 
         {/* MAIN Dynamic Tab Panel */}
-        <main className="flex-grow p-4 md:p-6 overflow-y-auto no-scrollbar bg-muted/20">
-          {activeTab === "overview" && (
+        <main className="flex-grow p-4 md:p-6 overflow-y-auto no-scrollbar bg-muted/20 text-left">
+          <h1 className="text-2xl font-black tracking-tight text-foreground mb-6 capitalize">
+            {translations[language][activeTab + "_menu"] || activeTab.replace("-", " ")}
+          </h1>
+          <div className={activeTab === "overview" ? "" : "hidden"}>
             <OverviewTab
               language={language}
               setActiveTab={setActiveTab}
-            />
-          )}
-
-          {activeTab === "profile" && (
-            <ProfileTab />
-          )}
-
-          {activeTab === "detect" && (
-            <DetectTab
-              language={language}
-              setActiveTab={setActiveTab}
-              setSelectedConsultation={setSelectedConsultation}
-              selectedCrop={selectedCrop}
-              setSelectedCrop={setSelectedCrop}
-              cropImageUrl={cropImageUrl}
-              setCropImageUrl={setCropImageUrl}
-              scanResult={scanResult}
-              setScanResult={setScanResult}
-              detectWorkflowStep={detectWorkflowStep}
-              setDetectWorkflowStep={setDetectWorkflowStep}
-            />
-          )}
-
-          {activeTab === "consultations" && (
-            <ConsultationsTab
-              language={language}
-            />
-          )}
-
-          {activeTab === "tickets" && (
-            <TicketsTab />
-          )}
-
-          {activeTab === "marketplace" && (
-            <MarketplaceTab
-              wishlistIds={wishlistIds}
-              onCartOrWishlistUpdate={fetchCartAndWishlistCount}
-            />
-          )}
-
-          {activeTab === "cart" && (
-            <CartTab
-              setActiveTab={setActiveTab}
-              onCartOrWishlistUpdate={fetchCartAndWishlistCount}
-            />
-          )}
-
-          {activeTab === "orders" && (
-            <OrdersTab />
-          )}
-
-          {activeTab === "payments" && (
-            <PaymentsTab />
-          )}
-
-          {activeTab === "crop-history" && (
-            <CropHistoryTab
-              language={language}
-              setActiveTab={setActiveTab}
-              setDetectState={setDetectState}
-              setSelectedConsultation={setSelectedConsultation}
               setSelectedOrder={setSelectedOrder}
+              setSelectedConsultation={setSelectedConsultation}
             />
+          </div>
+
+          {visitedTabs.profile && (
+            <div className={activeTab === "profile" ? "" : "hidden"}>
+              <ProfileTab />
+            </div>
           )}
 
-          {activeTab === "weather" && (
-            <WeatherTab />
+          {visitedTabs.detect && (
+            <div className={activeTab === "detect" ? "" : "hidden"}>
+              <DetectTab
+                language={language}
+                setActiveTab={setActiveTab}
+                setSelectedConsultation={setSelectedConsultation}
+                selectedCrop={selectedCrop}
+                setSelectedCrop={setSelectedCrop}
+                cropImageUrl={cropImageUrl}
+                setCropImageUrl={setCropImageUrl}
+                scanResult={scanResult}
+                setScanResult={setScanResult}
+                detectWorkflowStep={detectWorkflowStep}
+                setDetectWorkflowStep={setDetectWorkflowStep}
+                setAutoOpenBookingReportId={setAutoOpenBookingReportId}
+              />
+            </div>
           )}
 
-          {activeTab === "wishlist" && (
-            <WishlistTab
-              onCartOrWishlistUpdate={fetchCartAndWishlistCount}
-            />
+          {visitedTabs.consultations && (
+            <div className={activeTab === "consultations" ? "" : "hidden"}>
+              <ConsultationsTab
+                language={language}
+                selectedConsultation={selectedConsultation}
+                setSelectedConsultation={setSelectedConsultation}
+                setDashboardActiveTab={setActiveTab}
+                onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+                autoOpenBookingReportId={autoOpenBookingReportId}
+                setAutoOpenBookingReportId={setAutoOpenBookingReportId}
+              />
+            </div>
+          )}
+
+          {visitedTabs.tickets && (
+            <div className={activeTab === "tickets" ? "" : "hidden"}>
+              <TicketsTab />
+            </div>
+          )}
+
+          {visitedTabs.marketplace && (
+            <div className={activeTab === "marketplace" ? "" : "hidden"}>
+              <MarketplaceTab
+                wishlistIds={wishlistIds}
+                onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+                setActiveTab={setActiveTab}
+              />
+            </div>
+          )}
+
+          {visitedTabs.cart && (
+            <div className={activeTab === "cart" ? "" : "hidden"}>
+              <CartTab
+                setActiveTab={setActiveTab}
+                onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+              />
+            </div>
+          )}
+
+          {visitedTabs.orders && (
+            <div className={activeTab === "orders" ? "" : "hidden"}>
+              <OrdersTab
+                selectedOrder={selectedOrder}
+                setSelectedOrder={setSelectedOrder}
+              />
+            </div>
+          )}
+
+          {visitedTabs.payments && (
+            <div className={activeTab === "payments" ? "" : "hidden"}>
+              <PaymentsTab />
+            </div>
+          )}
+
+          {visitedTabs["crop-history"] && (
+            <div className={activeTab === "crop-history" ? "" : "hidden"}>
+              <CropHistoryTab
+                language={language}
+                setActiveTab={setActiveTab}
+                setDetectState={setDetectState}
+                setSelectedConsultation={setSelectedConsultation}
+                setSelectedOrder={setSelectedOrder}
+              />
+            </div>
+          )}
+
+          {visitedTabs.weather && (
+            <div className={activeTab === "weather" ? "" : "hidden"}>
+              <WeatherTab />
+            </div>
+          )}
+
+          {visitedTabs.wishlist && (
+            <div className={activeTab === "wishlist" ? "" : "hidden"}>
+              <WishlistTab
+                onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+              />
+            </div>
           )}
         </main>
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
       <nav className="fixed bottom-0 inset-x-0 h-16 bg-card border-t border-border flex items-center justify-around z-40 lg:hidden shadow-lift shrink-0">
-        {[
-          { id: "overview" as TabType, label: "Home", icon: LayoutDashboard },
-          { id: "detect" as TabType, label: "Detect", icon: ScanLine },
-          { id: "marketplace" as TabType, label: "Shop", icon: Store },
-          { id: "orders" as TabType, label: "Orders", icon: Package },
-          { id: "profile" as TabType, label: "Profile", icon: UserIcon },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center gap-1.5 p-2 transition-colors cursor-pointer border-0 bg-transparent ${
-                isActive ? "text-brand" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              <span className="text-[10px] font-bold tracking-tight">
-                {translations[language][tab.id + "_bottom"] || tab.label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+          {[
+            { id: "overview" as TabType, label: "Home", icon: LayoutDashboard },
+            { id: "detect" as TabType, label: "Detect", icon: ScanLine },
+            { id: "marketplace" as TabType, label: "Shop", icon: Store },
+            { id: "orders" as TabType, label: "Orders", icon: Package },
+            { id: "profile" as TabType, label: "Profile", icon: UserIcon },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-col items-center gap-1.5 p-2 transition-colors cursor-pointer border-0 bg-transparent ${
+                  isActive ? "text-brand" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span className="text-[10px] font-bold tracking-tight">
+                  {translations[language][tab.id + "_bottom"] || tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
     </div>
   );
 }

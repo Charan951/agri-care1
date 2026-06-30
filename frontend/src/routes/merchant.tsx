@@ -6,9 +6,10 @@ import {
   LogOut, Plus, Trash2, Edit, Copy, Check, Eye, ChevronRight, X,
   Search, ShieldAlert, CheckCircle2, TrendingUp, AlertTriangle, ArrowUpRight,
   Truck, ArrowRight, Printer, Download, MessageSquare, Send, Globe,
-  ShieldCheck, FileText, Percent, Landmark
+  ShieldCheck, FileText, Percent, Landmark, Menu
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 // Tab imports
@@ -54,11 +55,21 @@ type TabType =
 
 function MerchantDashboard() {
   const { user, loading, isAuthenticated, logout } = useAuth();
+  const { socket } = useSocket();
   const navigate = useNavigate();
 
   // Active sub-tab state
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev[activeTab]) return prev;
+      return { ...prev, [activeTab]: true };
+    });
+  }, [activeTab]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
 
   // Core Data States
   const [stats, setStats] = useState<any>(null);
@@ -301,7 +312,10 @@ function MerchantDashboard() {
       if (invRes.ok) setInventoryLogs(await invRes.json());
 
       const ordRes = await fetch("/api/merchant/orders");
-      if (ordRes.ok) setOrders(await ordRes.json());
+      if (ordRes.ok) {
+        const data = await ordRes.json();
+        setOrders(Array.isArray(data) ? data : (data.orders || []));
+      }
 
       const custRes = await fetch("/api/merchant/customers");
       if (custRes.ok) setCustomers(await custRes.json());
@@ -325,6 +339,68 @@ function MerchantDashboard() {
       console.error("Error fetching merchant data", err);
     }
   };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewOrder = () => {
+      fetch("/api/merchant/orders").then(res => {
+        if (res.ok) res.json().then(data => setOrders(Array.isArray(data) ? data : (data.orders || [])));
+      });
+      fetch("/api/merchant/dashboard-stats").then(res => {
+        if (res.ok) res.json().then(data => setStats(data));
+      });
+      fetch("/api/merchant/notifications").then(res => {
+        if (res.ok) res.json().then(data => setNotifications(data));
+      });
+      toast.info("New order placed!");
+    };
+
+    const handleOrderUpdated = () => {
+      fetch("/api/merchant/orders").then(res => {
+        if (res.ok) res.json().then(data => setOrders(Array.isArray(data) ? data : (data.orders || [])));
+      });
+      fetch("/api/merchant/dashboard-stats").then(res => {
+        if (res.ok) res.json().then(data => setStats(data));
+      });
+    };
+
+    const handleTicketChatUpdate = (data: any) => {
+      fetch("/api/merchant/tickets").then(res => {
+        if (res.ok) res.json().then(data => setTickets(data));
+      });
+      if (selectedTicket && selectedTicket._id === data.ticketId) {
+        setSelectedTicket((prev: any) => {
+          if (!prev) return null;
+          return { ...prev, chatHistory: data.chatHistory };
+        });
+      }
+    };
+
+    const handleTicketStatusUpdate = (data: any) => {
+      fetch("/api/merchant/tickets").then(res => {
+        if (res.ok) res.json().then(data => setTickets(data));
+      });
+      if (selectedTicket && selectedTicket._id === data.ticketId) {
+        setSelectedTicket((prev: any) => {
+          if (!prev) return null;
+          return { ...prev, status: data.status };
+        });
+      }
+    };
+
+    socket.on("new_order_placed", handleNewOrder);
+    socket.on("order_updated", handleOrderUpdated);
+    socket.on("ticket_chat_updated", handleTicketChatUpdate);
+    socket.on("ticket_status_updated", handleTicketStatusUpdate);
+
+    return () => {
+      socket.off("new_order_placed", handleNewOrder);
+      socket.off("order_updated", handleOrderUpdated);
+      socket.off("ticket_chat_updated", handleTicketChatUpdate);
+      socket.off("ticket_status_updated", handleTicketStatusUpdate);
+    };
+  }, [socket, selectedTicket]);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || user?.role !== "MERCHANT")) {
@@ -640,7 +716,11 @@ function MerchantDashboard() {
   return (
     <div className="flex h-screen overflow-hidden bg-muted/30 text-foreground font-sans">
       {/* SIDEBAR */}
-      <aside className="w-68 h-full border-r border-border bg-card hidden lg:flex flex-col justify-between p-4 flex-shrink-0">
+      <aside className={`hidden lg:flex h-full border-r border-border bg-card flex-col justify-between flex-shrink-0 transition-all duration-300 ${
+        isDesktopSidebarOpen
+          ? "w-68 p-4 opacity-100"
+          : "w-0 p-0 border-r-0 overflow-hidden opacity-0 pointer-events-none"
+      }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar pr-1">
           <div className="space-y-5">
             <div className="flex items-center gap-3.5 px-3 py-2 text-left">
@@ -661,7 +741,12 @@ function MerchantDashboard() {
               {menuItems.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as TabType)}
+                  onClick={() => {
+                    setActiveTab(item.id as TabType);
+                    if (window.innerWidth < 1024) {
+                      setIsDesktopSidebarOpen(false);
+                    }
+                  }}
                   className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold border-0 cursor-pointer transition-all ${
                     activeTab === item.id
                       ? "bg-brand text-brand-foreground shadow-soft"
@@ -699,34 +784,41 @@ function MerchantDashboard() {
 
       {/* MAIN BODY SCROLL */}
       <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-        {/* MOBILE HEADER */}
-        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:hidden flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand text-brand-foreground">
-              <Globe className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-bold tracking-tight">{user?.businessName || "Merchant Portal"}</span>
+        {/* HEADER BAR */}
+        <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4 lg:px-7 flex-shrink-0 text-left">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (window.innerWidth >= 1024) {
+                  setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
+                } else {
+                  setMobileMenuOpen(!mobileMenuOpen);
+                }
+              }}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground cursor-pointer hover:bg-muted"
+              title="Toggle Sidebar"
+            >
+              <Menu className="h-4.5 w-4.5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand text-brand-foreground lg:hidden">
+                <Globe className="h-4 w-4" />
+              </span>
+            </div>
           </div>
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="rounded-lg border border-border p-1.5 text-muted-foreground hover:text-foreground bg-transparent cursor-pointer"
-          >
-            <span className="sr-only">Toggle menu</span>
-            <svg className="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={mobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
-            </svg>
-          </button>
         </header>
 
         {/* MOBILE MENU PANEL */}
         {mobileMenuOpen && (
-          <div className="absolute inset-0 z-50 flex bg-background/95 backdrop-blur-sm lg:hidden">
-            <div className="flex flex-col w-full max-w-[280px] bg-card p-4 border-r border-border h-full shadow-lg">
+          <div className="fixed inset-0 z-50 flex bg-black/40 backdrop-blur-sm lg:hidden animate-in fade-in duration-200">
+            <div className="flex flex-col w-full max-w-[280px] bg-card p-4 border-r border-border h-full shadow-lg animate-in slide-in-from-left duration-250">
               <div className="flex items-center justify-between pb-4 border-b border-border mb-4 text-left">
-                <span className="text-sm font-bold">{user?.businessName || "Menu"}</span>
-                <button onClick={() => setMobileMenuOpen(false)} className="p-1 rounded-md hover:bg-muted bg-transparent border-0 cursor-pointer"><X className="h-5 w-5" /></button>
+                <span className="text-sm font-bold text-foreground truncate max-w-[80%]">{user?.businessName || "Merchant Portal"}</span>
+                <button onClick={() => setMobileMenuOpen(false)} className="p-1 rounded-md hover:bg-muted bg-transparent border-0 cursor-pointer">
+                  <X className="h-5 w-5 text-muted-foreground" />
+                </button>
               </div>
-              <nav className="flex-1 space-y-1 overflow-y-auto no-scrollbar">
+              <nav className="flex-1 space-y-1.5 overflow-y-auto no-scrollbar">
                 {menuItems.map((item) => (
                   <button
                     key={item.id}
@@ -734,134 +826,170 @@ function MerchantDashboard() {
                       setActiveTab(item.id as TabType);
                       setMobileMenuOpen(false);
                     }}
-                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-semibold border-0 cursor-pointer ${
-                      activeTab === item.id ? "bg-brand text-brand-foreground" : "text-muted-foreground hover:bg-muted bg-transparent"
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold border-0 transition-all ${
+                      activeTab === item.id 
+                        ? "bg-brand text-brand-foreground shadow-soft" 
+                        : "text-muted-foreground hover:bg-muted bg-transparent"
                     }`}
                   >
-                    <item.icon className="h-4 w-4" />
+                    <item.icon className="h-4.5 w-4.5" />
                     {item.label}
                   </button>
                 ))}
               </nav>
-              <button onClick={handleLogoutClick} className="flex items-center gap-3 px-3 py-2 mt-4 border-t border-border text-xs font-bold text-red-600 border-x-0 border-b-0 bg-transparent cursor-pointer"><LogOut className="h-4 w-4" /> Sign out</button>
+              <button 
+                onClick={handleLogoutClick} 
+                className="flex items-center gap-3 px-3 py-2.5 mt-4 border-t border-border text-xs font-bold text-red-600 border-x-0 border-b-0 bg-transparent cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 rounded-xl"
+              >
+                <LogOut className="h-4.5 w-4.5" /> Sign out
+              </button>
             </div>
             <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-4 lg:p-7 space-y-6 focus:outline-none bg-muted/10 no-scrollbar">
-          {activeTab === "overview" && (
+        <main className="flex-1 overflow-y-auto p-4 lg:p-7 space-y-6 focus:outline-none bg-muted/10 no-scrollbar text-left">
+          <h1 className="text-2xl font-black tracking-tight text-foreground capitalize">
+            {activeTab.replace("overview", "Dashboard Overview").replace("profile", "Profile Credentials").replace("support", "Support Desk").replace("store", "Store Management").replace("products", "Product Listings").replace("inventory", "Inventory & Alerts").replace("orders", "Order Processing").replace("customers", "Customers CRM").replace("reviews", "Reviews & Feedback").replace("offers", "Promotions & Offers").replace("payments", "Settlement Center").replace("reports", "Reports & Analytics").replace("notifications", "Alert Feeds").replace("settings", "Store Preferences")}
+          </h1>
+          <div className={activeTab === "overview" ? "" : "hidden"}>
             <OverviewTab stats={stats} />
+          </div>
+
+          {visitedTabs.store && (
+            <div className={activeTab === "store" ? "" : "hidden"}>
+              <StoreTab
+                storeProfileForm={storeProfileForm}
+                setStoreProfileForm={setStoreProfileForm}
+                handleStoreProfileSubmit={handleStoreProfileSubmit}
+                handleImageUpload={handleImageUpload}
+                uploadingLogo={uploadingLogo}
+                uploadingBanner={uploadingBanner}
+              />
+            </div>
           )}
 
-          {activeTab === "store" && (
-            <StoreTab
-              storeProfileForm={storeProfileForm}
-              setStoreProfileForm={setStoreProfileForm}
-              handleStoreProfileSubmit={handleStoreProfileSubmit}
-              handleImageUpload={handleImageUpload}
-              uploadingLogo={uploadingLogo}
-              uploadingBanner={uploadingBanner}
-            />
+          {visitedTabs.products && (
+            <div className={activeTab === "products" ? "" : "hidden"}>
+              <ProductsTab
+                products={products}
+                setIsProductModalOpen={setIsProductModalOpen}
+                setEditingProductId={setEditingProductId}
+                setProductForm={setProductForm}
+                setTempPreviews={setTempPreviews}
+                handleEditProduct={handleEditProduct}
+                handleDuplicateProduct={handleDuplicateProduct}
+                handleDeleteProduct={handleDeleteProduct}
+              />
+            </div>
           )}
 
-          {activeTab === "products" && (
-            <ProductsTab
-              products={products}
-              setIsProductModalOpen={setIsProductModalOpen}
-              setEditingProductId={setEditingProductId}
-              setProductForm={setProductForm}
-              setTempPreviews={setTempPreviews}
-              handleEditProduct={handleEditProduct}
-              handleDuplicateProduct={handleDuplicateProduct}
-              handleDeleteProduct={handleDeleteProduct}
-            />
+          {visitedTabs.inventory && (
+            <div className={activeTab === "inventory" ? "" : "hidden"}>
+              <InventoryTab
+                products={products}
+                inventoryLogs={inventoryLogs}
+                setIsStockModalOpen={setIsStockModalOpen}
+                setStockForm={setStockForm}
+              />
+            </div>
           )}
 
-          {activeTab === "inventory" && (
-            <InventoryTab
-              products={products}
-              inventoryLogs={inventoryLogs}
-              setIsStockModalOpen={setIsStockModalOpen}
-              setStockForm={setStockForm}
-            />
+          {visitedTabs.orders && (
+            <div className={activeTab === "orders" ? "" : "hidden"}>
+              <OrdersTab
+                orders={orders}
+                selectedOrder={selectedOrder}
+                setSelectedOrder={setSelectedOrder}
+                handleUpdateStatus={handleUpdateStatus}
+                setTrackingForm={setTrackingForm}
+                setIsTrackingModalOpen={setIsTrackingModalOpen}
+              />
+            </div>
           )}
 
-          {activeTab === "orders" && (
-            <OrdersTab
-              orders={orders}
-              selectedOrder={selectedOrder}
-              setSelectedOrder={setSelectedOrder}
-              handleUpdateStatus={handleUpdateStatus}
-              setTrackingForm={setTrackingForm}
-              setIsTrackingModalOpen={setIsTrackingModalOpen}
-            />
+          {visitedTabs.customers && (
+            <div className={activeTab === "customers" ? "" : "hidden"}>
+              <CustomersTab
+                customers={customers}
+                setCustomers={setCustomers}
+              />
+            </div>
           )}
 
-          {activeTab === "customers" && (
-            <CustomersTab
-              customers={customers}
-              setCustomers={setCustomers}
-            />
+          {visitedTabs.reviews && (
+            <div className={activeTab === "reviews" ? "" : "hidden"}>
+              <ReviewsTab
+                reviews={reviews}
+                setReviews={setReviews}
+              />
+            </div>
           )}
 
-          {activeTab === "reviews" && (
-            <ReviewsTab
-              reviews={reviews}
-              setReviews={setReviews}
-            />
+          {visitedTabs.offers && (
+            <div className={activeTab === "offers" ? "" : "hidden"}>
+              <OffersTab
+                offers={offers}
+                setIsOfferModalOpen={setIsOfferModalOpen}
+                handleDeleteOffer={handleDeleteOffer}
+              />
+            </div>
           )}
 
-          {activeTab === "offers" && (
-            <OffersTab
-              offers={offers}
-              setIsOfferModalOpen={setIsOfferModalOpen}
-              handleDeleteOffer={handleDeleteOffer}
-            />
+          {visitedTabs.payments && (
+            <div className={activeTab === "payments" ? "" : "hidden"}>
+              <PaymentsTab settlements={settlements} />
+            </div>
           )}
 
-          {activeTab === "payments" && (
-            <PaymentsTab settlements={settlements} />
+          {visitedTabs.reports && (
+            <div className={activeTab === "reports" ? "" : "hidden"}>
+              <ReportsTab />
+            </div>
           )}
 
-          {activeTab === "reports" && (
-            <ReportsTab />
+          {visitedTabs.notifications && (
+            <div className={activeTab === "notifications" ? "" : "hidden"}>
+              <NotificationsTab
+                notifications={notifications}
+                setNotifications={setNotifications}
+              />
+            </div>
           )}
 
-          {activeTab === "notifications" && (
-            <NotificationsTab
-              notifications={notifications}
-              setNotifications={setNotifications}
-            />
+          {visitedTabs.support && (
+            <div className={activeTab === "support" ? "" : "hidden"}>
+              <SupportTab
+                tickets={tickets}
+                selectedTicket={selectedTicket}
+                setSelectedTicket={setSelectedTicket}
+                ticketMessage={ticketMessage}
+                setTicketMessage={setTicketMessage}
+                handleSendTicketMessage={handleSendTicketMessage}
+                setIsSupportModalOpen={setIsSupportModalOpen}
+                user={user}
+              />
+            </div>
           )}
 
-          {activeTab === "support" && (
-            <SupportTab
-              tickets={tickets}
-              selectedTicket={selectedTicket}
-              setSelectedTicket={setSelectedTicket}
-              ticketMessage={ticketMessage}
-              setTicketMessage={setTicketMessage}
-              handleSendTicketMessage={handleSendTicketMessage}
-              setIsSupportModalOpen={setIsSupportModalOpen}
-              user={user}
-            />
+          {visitedTabs.profile && (
+            <div className={activeTab === "profile" ? "" : "hidden"}>
+              <ProfileTab
+                profileSecurityForm={profileSecurityForm}
+                setProfileSecurityForm={setProfileSecurityForm}
+                handleProfileSecuritySubmit={handleProfileSecuritySubmit}
+              />
+            </div>
           )}
 
-          {activeTab === "profile" && (
-            <ProfileTab
-              profileSecurityForm={profileSecurityForm}
-              setProfileSecurityForm={setProfileSecurityForm}
-              handleProfileSecuritySubmit={handleProfileSecuritySubmit}
-            />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsTab
-              storeProfileForm={storeProfileForm}
-              setStoreProfileForm={setStoreProfileForm}
-              handleStoreProfileSubmit={handleStoreProfileSubmit}
-            />
+          {visitedTabs.settings && (
+            <div className={activeTab === "settings" ? "" : "hidden"}>
+              <SettingsTab
+                storeProfileForm={storeProfileForm}
+                setStoreProfileForm={setStoreProfileForm}
+                handleStoreProfileSubmit={handleStoreProfileSubmit}
+              />
+            </div>
           )}
         </main>
       </div>

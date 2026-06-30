@@ -16,9 +16,17 @@ export const initSocket = (server: HttpServer, allowedOrigins: string[]) => {
     console.log('Socket connected:', socket.id);
 
     // Farmers and specialists will join their own user-specific room
-    socket.on('join_user_room', (userId: string) => {
+    socket.on('join_user_room', (userId: string, role?: string) => {
       socket.join(`user_${userId}`);
       console.log(`Socket ${socket.id} joined room user_${userId}`);
+      if (role) {
+        socket.join(`role_${role}`);
+        console.log(`Socket ${socket.id} joined room role_${role}`);
+        if (role === 'SUPER_USER' || role === 'ADMIN') {
+          socket.join('role_ADMIN');
+          console.log(`Socket ${socket.id} joined room role_ADMIN`);
+        }
+      }
     });
 
     socket.on('disconnect', () => {

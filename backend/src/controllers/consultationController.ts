@@ -24,12 +24,42 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
       return;
     }
 
-    const totalAssigned = await Consultation.countDocuments({ specialistId, status: { $ne: 'REJECTED' } });
-    const pending = await Consultation.countDocuments({ specialistId, status: 'PENDING' });
-    const active = await Consultation.countDocuments({ specialistId, status: 'ACTIVE' });
-    const completed = await Consultation.countDocuments({ specialistId, status: 'COMPLETED' });
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
-    const activeConsultations = await Consultation.find({ specialistId, status: 'ACTIVE' });
+    const [
+      totalAssigned,
+      pending,
+      active,
+      completed,
+      activeConsultations,
+      todayCount,
+      recentConsultations,
+      notifications
+    ] = await Promise.all([
+      Consultation.countDocuments({ specialistId, status: { $ne: 'REJECTED' } }),
+      Consultation.countDocuments({ specialistId, status: 'PENDING' }),
+      Consultation.countDocuments({ specialistId, status: 'ACTIVE' }),
+      Consultation.countDocuments({ specialistId, status: 'COMPLETED' }),
+      Consultation.find({ specialistId, status: 'ACTIVE' }),
+      Consultation.countDocuments({
+        specialistId,
+        createdAt: { $gte: startOfToday }
+      }),
+      Consultation.find({ specialistId })
+        .populate('farmerId', 'name')
+        .populate('reportId', 'cropName')
+        .sort({ updatedAt: -1 })
+        .limit(5),
+      SystemNotification.find({
+        $or: [
+          { title: /assigned/i },
+          { title: /message/i },
+          { title: /consultation/i }
+        ]
+      }).sort({ createdAt: -1 }).limit(5)
+    ]);
+
     let waitingFarmer = 0;
     for (const c of activeConsultations) {
       if (c.chatHistory.length > 0) {
@@ -40,21 +70,8 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
       }
     }
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const todayCount = await Consultation.countDocuments({
-      specialistId,
-      createdAt: { $gte: startOfToday }
-    });
-
     const avgRating = req.user?.rating || 5.0;
     const earnings = completed * 250;
-
-    const recentConsultations = await Consultation.find({ specialistId })
-      .populate('farmerId', 'name')
-      .populate('reportId', 'cropName')
-      .sort({ updatedAt: -1 })
-      .limit(5);
 
     const recentActivities = recentConsultations.map(c => ({
       id: c._id,
@@ -63,14 +80,6 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
       status: c.status,
       timestamp: c.updatedAt
     }));
-
-    const notifications = await SystemNotification.find({
-      $or: [
-        { title: /assigned/i },
-        { title: /message/i },
-        { title: /consultation/i }
-      ]
-    }).sort({ createdAt: -1 }).limit(5);
 
     res.json({
       stats: {
@@ -398,6 +407,12 @@ export const submitDiagnosis = async (req: AuthenticatedRequest, res: Response):
       });
     }
 
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    }
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id });
+
     res.json({ message: 'Diagnosis saved successfully', consultation });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error saving diagnosis' });
@@ -488,6 +503,13 @@ export const recommendProducts = async (req: AuthenticatedRequest, res: Response
     await consultation.save();
 
     const populated = await Consultation.findById(id).populate('recommendedProducts');
+
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    }
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id });
+
     res.json({ message: 'Products recommended successfully', recommendedProducts: populated?.recommendedProducts });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error recommending products' });
@@ -637,6 +659,14 @@ export const manageFollowUp = async (req: AuthenticatedRequest, res: Response): 
     };
 
     await consultation.save();
+
+    // Notify farmer, specialist and admin about follow-up updates
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    }
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id });
+
     res.json({ message: 'Follow-up details saved successfully', followUp: consultation.followUp });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error managing follow-up' });
@@ -656,6 +686,14 @@ export const closeFollowUp = async (req: AuthenticatedRequest, res: Response): P
       consultation.followUp.status = 'COMPLETED';
     }
     await consultation.save();
+
+    // Notify farmer, specialist and admin about follow-up updates
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: consultation.status });
+    }
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id });
+
     res.json({ message: 'Follow-up marked completed successfully', followUp: consultation.followUp });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error closing follow-up' });
@@ -667,13 +705,30 @@ export const closeFollowUp = async (req: AuthenticatedRequest, res: Response): P
 // ==========================================
 export const getConsultations = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
     const consultations = await Consultation.find()
       .populate('reportId', 'cropName symptoms imageUrl')
       .populate('farmerId', 'name email mobile')
       .populate('specialistId', 'name specialization mobile')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
-    res.json(consultations);
+    const total = await Consultation.countDocuments();
+
+    res.json({
+      consultations,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -681,11 +736,31 @@ export const getConsultations = async (req: AuthenticatedRequest, res: Response)
 
 export const getFarmerConsultations = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const consultations = await Consultation.find({ farmerId: req.user?._id })
-      .populate('specialistId', 'name specialization rating mobile')
-      .populate('reportId')
-      .sort({ createdAt: -1 });
-    res.json({ consultations });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [consultations, total] = await Promise.all([
+      Consultation.find({ farmerId: req.user?._id })
+        .populate('specialistId', 'name specialization rating mobile')
+        .populate('reportId')
+        .populate('recommendedProducts')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Consultation.countDocuments({ farmerId: req.user?._id })
+    ]);
+
+    res.json({
+      consultations,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching consultations' });
   }
@@ -829,6 +904,12 @@ export const rateSpecialist = async (req: AuthenticatedRequest, res: Response): 
       specialist.rating = parseFloat(((prevRating + rating) / 2).toFixed(2));
       await specialist.save();
     }
+
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: 'COMPLETED' });
+    if (consultation.specialistId) {
+      emitToRoom(`user_${consultation.specialistId}`, 'consultation_updated', { consultationId: id, status: 'COMPLETED' });
+    }
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id });
 
     res.json({ message: 'Thank you for your rating!', consultation });
   } catch (error: any) {

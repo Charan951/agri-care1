@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Search, Plus, Edit2, Trash2, FileText, CheckCircle2, XCircle, RefreshCw, X, ShoppingCart, Eye } from "lucide-react";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 interface UserRecord {
@@ -55,30 +56,66 @@ export function OrderManagementTab() {
   const [editPaymentStatus, setEditPaymentStatus] = useState<OrderRecord['paymentStatus']>("PENDING");
   const [editAddress, setEditAddress] = useState("");
 
-  const fetchOrders = async () => {
-    setLoading(true);
+  const { socket } = useSocket();
+
+  const fetchOrders = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
-      const url = `/api/admin/orders?status=${statusFilter}&search=${search}`;
+      const url = `/api/admin/orders?status=${statusFilter}`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
-        setOrders(data);
+        const ordersData = data.orders || data;
+        setOrders(ordersData);
+        if (search && search.length === 24 && ordersData.length === 1) {
+          setSelectedOrder(ordersData[0]);
+        }
       } else {
-        toast.error("Failed to load orders list.");
+        if (!isSilent) toast.error("Failed to load orders list.");
       }
     } catch (err) {
-      toast.error("Error connecting to server.");
+      if (!isSilent) toast.error("Error connecting to server.");
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
+  useEffect(() => {
+    const adminOrderSearch = sessionStorage.getItem("admin_order_search");
+    if (adminOrderSearch) {
+      setSearch(adminOrderSearch);
+      sessionStorage.removeItem("admin_order_search");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchOrders(true);
+    };
+
+    socket.on("new_order_placed", handleUpdate);
+    socket.on("order_updated", handleUpdate);
+
+    return () => {
+      socket.off("new_order_placed", handleUpdate);
+      socket.off("order_updated", handleUpdate);
+    };
+  }, [socket, search, statusFilter]);
+
   const fetchUsers = async () => {
     try {
-      const mRes = await fetch("/api/admin/users?role=MERCHANT");
-      const fRes = await fetch("/api/admin/users?role=FARMER");
-      if (mRes.ok) setMerchants(await mRes.json());
-      if (fRes.ok) setFarmers(await fRes.json());
+      const mRes = await fetch("/api/admin/users?role=MERCHANT&limit=100");
+      const fRes = await fetch("/api/admin/users?role=FARMER&limit=100");
+      if (mRes.ok) {
+        const data = await mRes.json();
+        setMerchants(data.users || data);
+      }
+      if (fRes.ok) {
+        const data = await fRes.json();
+        setFarmers(data.users || data);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -560,7 +597,13 @@ export function OrderManagementTab() {
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Order Document ID</span>
                   <h4 className="text-sm font-mono font-bold">{selectedOrder._id}</h4>
                 </div>
-                <button onClick={() => setSelectedOrder(null)} className="cursor-pointer rounded-lg border border-border p-1.5 hover:bg-muted text-muted-foreground">
+                <button 
+                  onClick={() => {
+                    setSelectedOrder(null);
+                    if (search && search.length === 24) setSearch("");
+                  }} 
+                  className="cursor-pointer rounded-lg border border-border p-1.5 hover:bg-muted text-muted-foreground"
+                >
                   <X className="h-4.5 w-4.5" />
                 </button>
               </div>
@@ -630,7 +673,10 @@ export function OrderManagementTab() {
               )}
               
               <button
-                onClick={() => setSelectedOrder(null)}
+                onClick={() => {
+                  setSelectedOrder(null);
+                  if (search && search.length === 24) setSearch("");
+                }}
                 className="w-full h-10 cursor-pointer rounded-lg border border-border text-center text-sm font-semibold hover:bg-muted"
               >
                 Close Drawer

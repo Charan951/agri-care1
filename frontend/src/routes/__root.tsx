@@ -2,6 +2,7 @@ import { createRootRoute, Outlet, Link, useLocation } from '@tanstack/react-rout
 import { Navbar } from '@/components/site/Navbar';
 import { Footer } from '@/components/site/Footer';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Toaster } from 'sonner';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -47,6 +48,7 @@ function RootComponent() {
         )}
       </main>
       {!isHideLayout && <Footer />}
+      <Toaster position="top-right" richColors />
     </div>
   );
 }

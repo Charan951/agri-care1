@@ -45,7 +45,7 @@ export function AIMonitoringTab() {
       const response = await fetch("/api/admin/ai-predictions");
       if (response.ok) {
         const data = await response.json();
-        setPredictions(data);
+        setPredictions(data.predictions || data);
       } else {
         toast.error("Failed to load AI predictions.");
       }

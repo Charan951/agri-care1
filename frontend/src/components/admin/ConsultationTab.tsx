@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Search, Plus, Edit2, Trash2, Eye, X, MessageSquare, ShieldAlert, Award, Send } from "lucide-react";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 interface Specialist {
@@ -70,32 +71,65 @@ export function ConsultationTab() {
   // Chat message injection
   const [chatMessage, setChatMessage] = useState("");
 
-  const fetchConsultations = async () => {
-    setLoading(true);
+  const { socket } = useSocket();
+
+  const fetchConsultations = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const response = await fetch("/api/admin/consultations");
       if (response.ok) {
         const data = await response.json();
-        setConsultations(data);
+        setConsultations(data.consultations || data);
       } else {
-        toast.error("Failed to load consultations.");
+        if (!isSilent) toast.error("Failed to load consultations.");
       }
     } catch (err) {
-      toast.error("Error connecting to server.");
+      if (!isSilent) toast.error("Error connecting to server.");
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchConsultations(true);
+    };
+
+    socket.on("new_consultation_request", handleUpdate);
+    socket.on("consultation_accepted", handleUpdate);
+    socket.on("consultation_rejected", handleUpdate);
+    socket.on("consultation_updated", handleUpdate);
+    socket.on("consultation_chat_updated", handleUpdate);
+
+    return () => {
+      socket.off("new_consultation_request", handleUpdate);
+      socket.off("consultation_accepted", handleUpdate);
+      socket.off("consultation_rejected", handleUpdate);
+      socket.off("consultation_updated", handleUpdate);
+      socket.off("consultation_chat_updated", handleUpdate);
+    };
+  }, [socket]);
+
   const fetchFormDetails = async () => {
     try {
-      const specRes = await fetch("/api/admin/users?role=AGRI_SPECIALIST");
-      const farmerRes = await fetch("/api/admin/users?role=FARMER");
-      const reportRes = await fetch("/api/admin/reports");
+      const specRes = await fetch("/api/admin/users?role=AGRI_SPECIALIST&limit=100");
+      const farmerRes = await fetch("/api/admin/users?role=FARMER&limit=100");
+      const reportRes = await fetch("/api/admin/reports?limit=100");
       
-      if (specRes.ok) setSpecialists(await specRes.json());
-      if (farmerRes.ok) setFarmers(await farmerRes.json());
-      if (reportRes.ok) setReports(await reportRes.json());
+      if (specRes.ok) {
+        const data = await specRes.json();
+        setSpecialists((await data).users || (await data));
+      }
+      if (farmerRes.ok) {
+        const data = await farmerRes.json();
+        setFarmers(data.users || data);
+      }
+      if (reportRes.ok) {
+        const data = await reportRes.json();
+        setReports(data.reports || data);
+      }
     } catch (err) {
       console.error(err);
     }

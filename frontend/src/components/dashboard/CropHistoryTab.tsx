@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { History, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 import { translations } from "./translations";
 
@@ -27,9 +28,11 @@ export function CropHistoryTab({
   const [historySearch, setHistorySearch] = useState("");
   const [historyFilter, setHistoryFilter] = useState<"all" | "reports" | "consults" | "orders" | "payments">("all");
 
-  const loadData = async () => {
+  const { socket } = useSocket();
+
+  const loadData = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const [scansRes, consultsRes, ordersRes, paymentsRes] = await Promise.all([
         apiFetch("/api/customer/disease-detection/history"),
         apiFetch("/api/customer/consultations"),
@@ -55,15 +58,39 @@ export function CropHistoryTab({
       }
     } catch (err) {
       console.error("Error loading history data", err);
-      toast.error("Failed to load history logs");
+      if (!isSilent) toast.error("Failed to load history logs");
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      loadData(true);
+    };
+
+    socket.on("report_created", handleUpdate);
+    socket.on("report_updated", handleUpdate);
+    socket.on("report_deleted", handleUpdate);
+    socket.on("consultation_updated", handleUpdate);
+    socket.on("consultation_chat_updated", handleUpdate);
+    socket.on("order_updated", handleUpdate);
+
+    return () => {
+      socket.off("report_created", handleUpdate);
+      socket.off("report_updated", handleUpdate);
+      socket.off("report_deleted", handleUpdate);
+      socket.off("consultation_updated", handleUpdate);
+      socket.off("consultation_chat_updated", handleUpdate);
+      socket.off("order_updated", handleUpdate);
+    };
+  }, [socket]);
 
   if (loading) {
     return (
@@ -91,7 +118,7 @@ export function CropHistoryTab({
           subtitleText = `Diagnosed by Specialist: ${h.specialistDiagnosis.disease}`;
         } else if (isAssigned) {
           badgeText = language === "te" ? "పరిశీలనలో ఉంది" : "Assigned for Review";
-          badgeColor = "bg-indigo-50 text-indigo-700 border-indigo-200";
+          badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-200";
           subtitleText = h.assignedSpecialistId?.name 
             ? `Under review by Dr. ${h.assignedSpecialistId.name}`
             : "Under review by specialist";

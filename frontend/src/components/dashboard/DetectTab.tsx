@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ChevronRight,
   ChevronLeft,
@@ -20,6 +20,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { translations } from "./translations";
+import { compressImage } from "@/lib/utils";
 
 const loadRazorpayScript = () => {
   return new Promise((resolve) => {
@@ -148,6 +149,7 @@ interface DetectTabProps {
   setScanResult: (result: any) => void;
   detectWorkflowStep: "category" | "info" | "upload" | "analyzing" | "report";
   setDetectWorkflowStep: (step: "category" | "info" | "upload" | "analyzing" | "report") => void;
+  setAutoOpenBookingReportId?: (id: string) => void;
 }
 
 export function DetectTab({
@@ -161,10 +163,11 @@ export function DetectTab({
   scanResult,
   setScanResult,
   detectWorkflowStep,
-  setDetectWorkflowStep
+  setDetectWorkflowStep,
+  setAutoOpenBookingReportId
 }: DetectTabProps) {
   const { user } = useAuth();
-  
+
   const [cropAnswers, setCropAnswers] = useState<Record<string, string>>({});
   const [uploadedImages, setUploadedImages] = useState<Array<{ url: string, quality: { blur: boolean, brightness: boolean, focus: boolean, resolution: string, score: number } }>>([]);
   const [analyzingStageIndex, setAnalyzingStageIndex] = useState(0);
@@ -172,6 +175,75 @@ export function DetectTab({
   const [consultations, setConsultations] = useState<any[]>([]);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   const [recommendedProductsList, setRecommendedProductsList] = useState<any[]>([]);
+
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } }
+      });
+      setCameraStream(stream);
+      setShowCameraModal(true);
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 50);
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      toast.error(language === "en" ? "Unable to access camera. Please check permissions." : "కెమెరాను యాక్సెస్ చేయలేకపోయాము. దయచేసి అనుమతులను తనిఖీ చేయండి.");
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowCameraModal(false);
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg");
+        
+        if (uploadedImages.length >= 5) {
+          toast.warning("All slots filled.");
+          stopCamera();
+          return;
+        }
+        
+        const isBlurry = Math.random() < 0.15;
+        const score = isBlurry ? Math.floor(Math.random() * 15) + 50 : Math.floor(Math.random() * 20) + 78;
+        const quality = {
+          blur: isBlurry,
+          brightness: true,
+          focus: true,
+          resolution: `${canvas.width}x${canvas.height}`,
+          score
+        };
+        
+        setUploadedImages(prev => {
+          const next = [...prev, { url: dataUrl, quality }];
+          setTimeout(() => setCropImageUrl(next[0].url), 0);
+          return next;
+        });
+        
+        toast.success(language === "en" ? "Photo captured successfully!" : "ఫోటో విజయవంతంగా తీయబడింది!");
+        stopCamera();
+      }
+    }
+  };
 
   useEffect(() => {
     // Fetch consultations to support redirection
@@ -212,7 +284,7 @@ export function DetectTab({
         if (res.ok) {
           const data = await res.json();
           setScanResult(data);
-          
+
           // Get products recommendation if any
           if (data.recommendedProductsList) {
             setRecommendedProductsList(data.recommendedProductsList);
@@ -223,7 +295,7 @@ export function DetectTab({
               setRecommendedProductsList(pData.products || []);
             }
           }
-          
+
           toast.success(language === "en" ? "AI Crop Diagnosis Complete!" : "AI పంట వ్యాధి నిర్ధారణ పూర్తయింది!");
           setDetectWorkflowStep("report");
         } else {
@@ -324,6 +396,7 @@ export function DetectTab({
       });
       if (res.ok) {
         toast.success("Product added to cart!");
+        setActiveTab("cart");
       } else {
         toast.error("Failed to add to cart");
       }
@@ -349,9 +422,8 @@ export function DetectTab({
             const isCompleted = steps.indexOf(detectWorkflowStep) > idx;
             return (
               <div key={step.id} className="flex items-center gap-1.5 md:gap-2 my-1 shrink-0">
-                <span className={`h-6 w-6 rounded-full flex items-center justify-center font-extrabold text-[10px] transition-all ${
-                  isCurrent ? "bg-brand text-brand-foreground scale-110 shadow-sm" : isCompleted ? "bg-brand-soft text-brand" : "bg-muted text-muted-foreground"
-                }`}>
+                <span className={`h-6 w-6 rounded-full flex items-center justify-center font-extrabold text-[10px] transition-all ${isCurrent ? "bg-brand text-brand-foreground scale-110 shadow-sm" : isCompleted ? "bg-brand-soft text-brand" : "bg-muted text-muted-foreground"
+                  }`}>
                   {idx + 1}
                 </span>
                 <span className={`${isCurrent ? "text-brand font-bold" : isCompleted ? "text-foreground font-semibold" : ""}`}>
@@ -434,13 +506,13 @@ export function DetectTab({
                 <option value="">-- Select Variety --</option>
                 {(selectedCrop === "Paddy (Rice)" ? ["Swarna", "Basmati", "Sona Masuri", "IR64", "Hybrid RP"] :
                   selectedCrop === "Tomato" ? ["Arka Rakshak", "Pusa Ruby", "Country Tomato", "Cherry Tomato", "Abhinav Hybrid"] :
-                  selectedCrop === "Potato" ? ["Kufri Jyoti", "Kufri Bahar", "Kufri Pukhraj", "Red Potato", "Local Organic"] :
-                  selectedCrop === "Maize" ? ["Sweet Corn", "Baby Corn", "Deccan Hybrid", "Double Cross Hybrid"] :
-                  selectedCrop === "Chilli" ? ["Guntur Sannam", "Byadagi Chilli", "Teja Chilli", "Jwala Chilli"] :
-                  selectedCrop === "Onion" ? ["Red Onion", "White Onion", "Shallots (Sambhar Onion)", "Nasik Red"] :
-                  ["Local Variety", "Hybrid Variety", "Organic Certified", "Imported Seedlings"]).map(v => (
-                    <option key={v} value={v}>{v}</option>
-                ))}
+                    selectedCrop === "Potato" ? ["Kufri Jyoti", "Kufri Bahar", "Kufri Pukhraj", "Red Potato", "Local Organic"] :
+                      selectedCrop === "Maize" ? ["Sweet Corn", "Baby Corn", "Deccan Hybrid", "Double Cross Hybrid"] :
+                        selectedCrop === "Chilli" ? ["Guntur Sannam", "Byadagi Chilli", "Teja Chilli", "Jwala Chilli"] :
+                          selectedCrop === "Onion" ? ["Red Onion", "White Onion", "Shallots (Sambhar Onion)", "Nasik Red"] :
+                            ["Local Variety", "Hybrid Variety", "Organic Certified", "Imported Seedlings"]).map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
               </select>
             </div>
 
@@ -530,11 +602,10 @@ export function DetectTab({
                         setCropAnswers(updated);
                         localStorage.setItem(`draft_${selectedCrop}`, JSON.stringify(updated));
                       }}
-                      className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all cursor-pointer ${
-                        isSelected
+                      className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all cursor-pointer ${isSelected
                           ? "bg-brand text-brand-foreground border-brand"
                           : "bg-background text-muted-foreground border-border hover:bg-muted/50"
-                      }`}
+                        }`}
                     >
                       {label}
                     </button>
@@ -747,9 +818,8 @@ export function DetectTab({
                   {img ? (
                     <>
                       <img src={img.url} alt="" className="w-full h-full object-cover" />
-                      <span className={`absolute bottom-2 left-2 text-[8px] font-bold px-1.5 py-0.5 rounded text-white ${
-                        img.quality.score >= 70 ? "bg-success/80" : "bg-red-500/80"
-                      }`}>
+                      <span className={`absolute bottom-2 left-2 text-[8px] font-bold px-1.5 py-0.5 rounded text-white ${img.quality.score >= 70 ? "bg-success/80" : "bg-red-500/80"
+                        }`}>
                         {img.quality.score}% Score
                       </span>
                       <button
@@ -783,74 +853,52 @@ export function DetectTab({
                 type="file"
                 accept="image/*"
                 multiple
-                onChange={(e) => {
+                onChange={async (e) => {
                   const files = Array.from(e.target.files || []);
                   if (uploadedImages.length + files.length > 5) {
                     toast.warning(language === "en" ? "You can only upload up to 5 images." : "మీరు గరిష్టంగా 5 చిత్రాలను మాత్రమే అప్‌లోడ్ చేయగలరు.");
                     return;
                   }
-                  files.forEach(file => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      const isBlurry = Math.random() < 0.2;
-                      const score = isBlurry ? Math.floor(Math.random() * 15) + 50 : Math.floor(Math.random() * 20) + 78;
-                      const quality = {
-                        blur: isBlurry,
-                        brightness: Math.random() > 0.1,
-                        focus: true,
-                        resolution: "1920x1440",
-                        score
+                  try {
+                    const compressedFiles = await Promise.all(
+                      files.map(file => compressImage(file))
+                    );
+                    compressedFiles.forEach(file => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        const isBlurry = Math.random() < 0.2;
+                        const score = isBlurry ? Math.floor(Math.random() * 15) + 50 : Math.floor(Math.random() * 20) + 78;
+                        const quality = {
+                          blur: isBlurry,
+                          brightness: Math.random() > 0.1,
+                          focus: true,
+                          resolution: "1920x1440",
+                          score
+                        };
+                        setUploadedImages(prev => {
+                          const next = [...prev, { url: reader.result as string, quality }];
+                          setTimeout(() => setCropImageUrl(next[0].url), 0);
+                          return next;
+                        });
                       };
-                      setUploadedImages(prev => {
-                        const next = [...prev, { url: reader.result as string, quality }];
-                        setTimeout(() => setCropImageUrl(next[0].url), 0);
-                        return next;
-                      });
-                    };
-                    reader.readAsDataURL(file);
-                  });
-                }}
-                className="hidden"
-              />
-            </label>
-
-            <label className="flex-grow bg-muted/40 hover:bg-muted/70 border border-border text-foreground font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors">
-              <Camera className="h-4.5 w-4.5 text-brand" /> {translations[language].camera}
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) => {
-                  if (uploadedImages.length >= 5) {
-                    toast.warning("All slots filled.");
-                    return;
-                  }
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-
-                  const reader = new FileReader();
-                  reader.onloadend = () => {
-                    const isBlurry = Math.random() < 0.15;
-                    const score = isBlurry ? Math.floor(Math.random() * 15) + 50 : Math.floor(Math.random() * 20) + 78;
-                    const quality = {
-                      blur: isBlurry,
-                      brightness: true,
-                      focus: true,
-                      resolution: "2048x1536",
-                      score
-                    };
-                    setUploadedImages(prev => {
-                      const next = [...prev, { url: reader.result as string, quality }];
-                      setTimeout(() => setCropImageUrl(next[0].url), 0);
-                      return next;
+                      reader.readAsDataURL(file);
                     });
-                    toast.success(language === "en" ? "Camera photo captured!" : "కెమెరా ఫోటో తీయబడింది!");
-                  };
-                  reader.readAsDataURL(file);
+                  } catch (err) {
+                    console.error("Compression error:", err);
+                    toast.error("Failed to process images.");
+                  }
                 }}
                 className="hidden"
               />
             </label>
+
+            <button
+              type="button"
+              onClick={startCamera}
+              className="flex-grow bg-muted/40 hover:bg-muted/70 border border-border text-foreground font-bold text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            >
+              <Camera className="h-4.5 w-4.5 text-brand" /> {translations[language].camera}
+            </button>
           </div>
 
           {uploadedImages.length > 0 && (
@@ -865,9 +913,8 @@ export function DetectTab({
                         {img.quality.blur ? <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> : <CheckCircle2 className="h-3.5 w-3.5 text-success" />}
                         {translations[language].blurLabel}: {img.quality.blur ? "Blurry" : "Clear"}
                       </span>
-                      <span className={`font-bold rounded px-1.5 py-0.5 text-[10px] ${
-                        img.quality.score >= 70 ? "bg-success/10 text-success" : "bg-red-50 text-red-600 animate-pulse"
-                      }`}>
+                      <span className={`font-bold rounded px-1.5 py-0.5 text-[10px] ${img.quality.score >= 70 ? "bg-success/10 text-success" : "bg-red-50 text-red-600 animate-pulse"
+                        }`}>
                         {img.quality.score}% Quality
                       </span>
                     </div>
@@ -931,9 +978,8 @@ export function DetectTab({
               const isDone = analyzingStageIndex > index;
               return (
                 <div key={index} className="flex items-center gap-2 transition-all">
-                  <span className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                    isActive ? "bg-brand text-brand-foreground scale-110 animate-pulse" : isDone ? "bg-success text-white" : "bg-muted text-muted-foreground/60"
-                  }`}>
+                  <span className={`h-4.5 w-4.5 rounded-full flex items-center justify-center text-[9px] font-bold ${isActive ? "bg-brand text-brand-foreground scale-110 animate-pulse" : isDone ? "bg-success text-white" : "bg-muted text-muted-foreground/60"
+                    }`}>
                     {isDone ? "✓" : index + 1}
                   </span>
                   <span className={`${isActive ? "text-brand font-bold" : isDone ? "text-foreground font-semibold" : "text-muted-foreground/60"}`}>
@@ -950,7 +996,7 @@ export function DetectTab({
       {detectWorkflowStep === "report" && scanResult && (() => {
         const reportDoc = scanResult.report || scanResult;
         const details = scanResult.details || scanResult.aiPrediction || {};
-        
+
         return (
           <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {/* Left and Middle Content */}
@@ -1072,23 +1118,28 @@ export function DetectTab({
                       const matchingConsult = consultations.find(c => c.reportId?._id === reportDoc._id || c.reportId === reportDoc._id);
                       if (matchingConsult) {
                         setSelectedConsultation(matchingConsult);
+                        setActiveTab("consultations");
+                      } else {
+                        if (setAutoOpenBookingReportId) {
+                          setAutoOpenBookingReportId(reportDoc._id);
+                        }
+                        setActiveTab("consultations");
                       }
-                      setActiveTab("consultations");
                     }}
                     className="w-full bg-brand text-brand-foreground hover:bg-brand/95 font-bold text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer border-0"
                   >
                     <MessageSquare className="h-4.5 w-4.5" />
-                    Ask Specialist Questions
+                    Book Agronomist Consultation
                   </button>
                 </div>
               ) : reportDoc.status === 'ASSIGNED' ? (
                 <div className="space-y-4">
                   <h4 className="font-extrabold text-sm text-foreground flex items-center gap-1.5 border-b border-border pb-3">
-                    <Activity className="h-5 w-5 text-indigo-500 animate-pulse" />
+                    <Activity className="h-5 w-5 text-brand animate-pulse" />
                     Review in Progress
                   </h4>
-                  <div className="bg-indigo-50/50 border border-indigo-200/50 p-4 rounded-xl text-center py-6 space-y-3">
-                    <div className="h-10 w-10 rounded-full bg-indigo-500/10 text-indigo-600 flex items-center justify-center font-bold text-sm mx-auto">
+                  <div className="bg-emerald-50/50 border border-emerald-200/50 p-4 rounded-xl text-center py-6 space-y-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold text-sm mx-auto">
                       {reportDoc.assignedSpecialistId?.name ? reportDoc.assignedSpecialistId.name[0].toUpperCase() : 'A'}
                     </div>
                     <div>
@@ -1099,7 +1150,7 @@ export function DetectTab({
                         {reportDoc.assignedSpecialistId?.specialization || "General Specialist"}
                       </p>
                     </div>
-                    <p className="text-[11px] text-indigo-700 leading-relaxed max-w-[200px] mx-auto pt-1 font-semibold">
+                    <p className="text-[11px] text-emerald-700 leading-relaxed max-w-[200px] mx-auto pt-1 font-semibold">
                       Reviewing your leaf symptoms. Your certified prescription is being compiled.
                     </p>
                   </div>
@@ -1109,13 +1160,18 @@ export function DetectTab({
                       const matchingConsult = consultations.find(c => c.reportId?._id === reportDoc._id || c.reportId === reportDoc._id);
                       if (matchingConsult) {
                         setSelectedConsultation(matchingConsult);
+                        setActiveTab("consultations");
+                      } else {
+                        if (setAutoOpenBookingReportId) {
+                          setAutoOpenBookingReportId(reportDoc._id);
+                        }
+                        setActiveTab("consultations");
                       }
-                      setActiveTab("consultations");
                     }}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer border-0"
+                    className="w-full bg-brand hover:bg-brand/95 text-brand-foreground font-bold text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer border-0"
                   >
                     <MessageSquare className="h-4.5 w-4.5" />
-                    Open Live Consult Chat
+                    Book Agronomist Consultation
                   </button>
                 </div>
               ) : (
@@ -1177,6 +1233,63 @@ export function DetectTab({
           </div>
         );
       })()}
+
+      {/* Real-time camera dialog modal */}
+      {showCameraModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl max-w-lg w-full overflow-hidden shadow-lift flex flex-col h-[85vh] max-h-[600px] text-left">
+            <div className="p-4 border-b border-border flex justify-between items-center bg-muted/20">
+              <div>
+                <h3 className="font-extrabold text-sm text-foreground m-0">Real-Time Crop Camera</h3>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Align your crop leaves inside the frame</p>
+              </div>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="p-1.5 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer font-bold text-xs text-foreground"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-8 border-2 border-dashed border-brand/50 rounded-2xl pointer-events-none flex items-center justify-center">
+                <div className="text-[10px] text-brand bg-black/60 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider backdrop-blur-sm">
+                  Crop Leaf Target Area
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-5 flex justify-between items-center bg-muted/20 border-t border-border">
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="px-4 py-2 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted bg-transparent cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              <button
+                type="button"
+                onClick={capturePhoto}
+                className="h-14 w-14 rounded-full bg-brand hover:bg-brand/90 text-brand-foreground flex items-center justify-center shadow-lg border-4 border-white/20 active:scale-95 transition-all cursor-pointer"
+                title="Capture Photo"
+              >
+                <div className="h-6 w-6 rounded-full bg-brand-foreground" />
+              </button>
+              
+              <div className="w-14" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

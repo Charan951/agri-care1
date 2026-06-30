@@ -9,24 +9,35 @@ import {
   CloudSun,
   AlertTriangle,
   Package,
-  RefreshCw
+  RefreshCw,
+  Calendar,
+  Clock,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 import { translations } from "./translations";
 
 interface OverviewTabProps {
   language: "en" | "te";
   setActiveTab: (tab: any) => void;
+  setSelectedOrder: (order: any) => void;
+  setSelectedConsultation: (consultation: any) => void;
 }
 
-export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
+export function OverviewTab({ language, setActiveTab, setSelectedOrder, setSelectedConsultation }: OverviewTabProps) {
   const { user } = useAuth();
+  const { socket } = useSocket();
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [currentTrackerIdx, setCurrentTrackerIdx] = useState(0);
 
-  const fetchOverviewData = async () => {
+  const fetchOverviewData = async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const response = await apiFetch("/api/customer/dashboard-summary");
       if (response.ok) {
@@ -35,15 +46,41 @@ export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
       }
     } catch (err) {
       console.error("Error loading dashboard details", err);
-      toast.error("Failed to load dashboard details");
+      if (!isSilent) toast.error("Failed to load dashboard details");
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchOverviewData();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchOverviewData(true);
+    };
+
+    socket.on("order_updated", handleUpdate);
+    socket.on("ticket_status_updated", handleUpdate);
+    socket.on("ticket_chat_updated", handleUpdate);
+    socket.on("consultation_updated", handleUpdate);
+    socket.on("consultation_chat_updated", handleUpdate);
+    socket.on("report_created", handleUpdate);
+    socket.on("report_updated", handleUpdate);
+
+    return () => {
+      socket.off("order_updated", handleUpdate);
+      socket.off("ticket_status_updated", handleUpdate);
+      socket.off("ticket_chat_updated", handleUpdate);
+      socket.off("consultation_updated", handleUpdate);
+      socket.off("consultation_chat_updated", handleUpdate);
+      socket.off("report_created", handleUpdate);
+      socket.off("report_updated", handleUpdate);
+    };
+  }, [socket]);
 
   const handleAddToCart = async (productId: string) => {
     try {
@@ -98,6 +135,26 @@ export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
     }
   };
 
+  const formatDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+    } catch (e) {
+      return "";
+    }
+  };
+
+  const totalOngoingCount = (dashboardData.ongoingOrders?.length || 0) + (dashboardData.ongoingConsultations?.length || 0);
+
   return (
     <div className="space-y-6">
       {/* Welcome Card replaced with plain text IST greeting */}
@@ -105,12 +162,194 @@ export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
         <h1 className="text-2xl md:text-3xl font-extrabold text-foreground tracking-tight">
           {getISTGreeting()}, {user.name}!
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">
-          {language === "en" 
-            ? `Welcome to your farm advisor platform. You currently have ${farmsCount} registered fields.`
-            : `మీ వ్యవసాయ సలహాదారు ప్లాట్‌ఫారమ్‌కు స్వాగతం. మీకు ప్రస్తుతం ${farmsCount} నమోదిత ఫీల్డ్‌లు ఉన్నాయి.`}
-        </p>
       </div>
+
+      {/* Ongoing Tracking Section (Carousel) */}
+      {(() => {
+        const ongoingTrackers = [
+          ...(dashboardData?.ongoingOrders || []).map((o: any) => ({ type: 'ORDER', data: o })),
+          ...(dashboardData?.ongoingConsultations || []).map((c: any) => ({ type: 'CONSULTATION', data: c }))
+        ];
+
+        if (ongoingTrackers.length === 0) return null;
+
+        const safeIdx = currentTrackerIdx >= ongoingTrackers.length ? 0 : currentTrackerIdx;
+        const activeTracker = ongoingTrackers[safeIdx];
+
+        return (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-sm text-muted-foreground tracking-wider uppercase">
+                {language === "en" ? "Ongoing Trackers" : "కొనసాగుతున్న ట్రాకర్లు"}
+              </h3>
+              {ongoingTrackers.length > 1 && (
+                <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  {safeIdx + 1} / {ongoingTrackers.length}
+                </span>
+              )}
+            </div>
+            
+            <div className="relative group w-full">
+              {/* Left Chevron Button */}
+              {ongoingTrackers.length > 1 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentTrackerIdx(prev => (prev - 1 + ongoingTrackers.length) % ongoingTrackers.length);
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm cursor-pointer border-0 shadow-soft hover:scale-105 active:scale-95 transition-all"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              )}
+
+              {/* Right Chevron Button */}
+              {ongoingTrackers.length > 1 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentTrackerIdx(prev => (prev + 1) % ongoingTrackers.length);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm cursor-pointer border-0 shadow-soft hover:scale-105 active:scale-95 transition-all"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              )}
+
+              {/* Card Content */}
+              {activeTracker.type === 'ORDER' ? (
+                <div 
+                  onClick={() => {
+                    setSelectedOrder(activeTracker.data);
+                    setActiveTab("orders");
+                  }}
+                  className="bg-brand bg-gradient-to-br from-brand to-brand-secondary text-white rounded-2xl p-5 md:p-6 shadow-card hover:shadow-lift transition-all relative flex flex-col justify-between overflow-hidden cursor-pointer hover:scale-[1.005] duration-200 min-h-[160px]"
+                >
+                  <div className="absolute top-5 right-5 hidden md:block">
+                    <span className="px-3 py-1 rounded-full bg-white/20 text-white border border-white/10 font-bold text-[10px] uppercase tracking-wider">
+                      {activeTracker.data.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 px-2 md:px-10">
+                    <div>
+                      <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">
+                        {language === "en" ? "Ongoing Order" : "కొనసాగుతున్న ఆర్డర్"}
+                      </p>
+                      <h2 className="text-white text-lg md:text-xl font-extrabold tracking-tight mt-1 truncate max-w-[80%]">
+                        {activeTracker.data.items[0]?.product} {activeTracker.data.items.length > 1 ? `+${activeTracker.data.items.length - 1} more` : ""}
+                      </h2>
+                    </div>
+
+                    <div className="block md:hidden">
+                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/20 text-white border border-white/10 font-bold text-[10px] uppercase tracking-wider">
+                        {activeTracker.data.status}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-white/90">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-4 w-4 shrink-0" />
+                        <span>{formatDate(activeTracker.data.createdAt)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 shrink-0" />
+                        <span>{formatTime(activeTracker.data.createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 pt-1 md:mt-6 px-2 md:px-10 text-left">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedOrder(activeTracker.data);
+                        setActiveTab("orders");
+                      }}
+                      className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-brand font-bold text-xs rounded-xl shadow-soft hover:bg-white/95 active:scale-95 transition-all cursor-pointer border-0"
+                    >
+                      {language === "en" ? "Track Order" : "ఆర్డర్ ట్రాక్ చేయండి"} <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div 
+                  onClick={() => {
+                    setSelectedConsultation(activeTracker.data);
+                    setActiveTab("consultations");
+                  }}
+                  className="bg-brand bg-gradient-to-br from-brand to-emerald-600 text-white rounded-2xl p-5 md:p-6 shadow-card hover:shadow-lift transition-all relative flex flex-col justify-between overflow-hidden cursor-pointer hover:scale-[1.005] duration-200 min-h-[160px]"
+                >
+                  <div className="absolute top-5 right-5 hidden md:block">
+                    <span className="px-3 py-1 rounded-full bg-white/20 text-white border border-white/10 font-bold text-[10px] uppercase tracking-wider">
+                      {activeTracker.data.status === 'PENDING' ? 'Created' : activeTracker.data.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 px-2 md:px-10">
+                    <div>
+                      <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">
+                        {language === "en" ? "Ongoing Service" : "కొనసాగుతున్న సేవ"}
+                      </p>
+                      <h2 className="text-white text-lg md:text-xl font-extrabold tracking-tight mt-1 truncate max-w-[80%]">
+                        {activeTracker.data.reportId?.cropName ? `${activeTracker.data.reportId.cropName.toUpperCase()} CONSULTATION` : "CROP CONSULTATION"}
+                      </h2>
+                    </div>
+
+                    <div className="block md:hidden">
+                      <span className="inline-block px-2.5 py-0.5 rounded-full bg-white/20 text-white border border-white/10 font-bold text-[10px] uppercase tracking-wider">
+                        {activeTracker.data.status === 'PENDING' ? 'Created' : activeTracker.data.status}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-white/90">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="h-4 w-4 shrink-0" />
+                        <span>{formatDate(activeTracker.data.createdAt)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 shrink-0" />
+                        <span>{formatTime(activeTracker.data.createdAt)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 pt-1 md:mt-6 px-2 md:px-10 text-left">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedConsultation(activeTracker.data);
+                        setActiveTab("consultations");
+                      }}
+                      className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-brand font-bold text-xs rounded-xl shadow-soft hover:bg-white/95 active:scale-95 transition-all cursor-pointer border-0"
+                    >
+                      {language === "en" ? "Track Service" : "సేవను ట్రాక్ చేయండి"} <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Pagination Dots */}
+              {ongoingTrackers.length > 1 && (
+                <div className="flex justify-center gap-1.5 mt-3 shrink-0">
+                  {ongoingTrackers.map((_, dotIdx) => (
+                    <button
+                      key={dotIdx}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCurrentTrackerIdx(dotIdx);
+                      }}
+                      className={`h-1.5 rounded-full transition-all border-0 p-0 cursor-pointer ${
+                        safeIdx === dotIdx ? "w-4 bg-brand" : "w-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/50"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Quick Actions Grid */}
       <div className="space-y-3">
@@ -125,21 +364,21 @@ export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
             <button
               key={i}
               onClick={() => setActiveTab(action.tab)}
-              className="flex items-center gap-3 p-4 bg-card border border-border rounded-xl shadow-soft hover:shadow-card hover:border-brand/40 transition-all text-left cursor-pointer outline-none"
+              className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 p-3 sm:p-4 bg-card border border-border rounded-xl shadow-soft hover:shadow-card hover:border-brand/40 transition-all text-center sm:text-left cursor-pointer outline-none w-full"
             >
-              <div className={`p-2.5 rounded-lg ${action.color}`}>
-                <action.icon className="h-5 w-5" />
+              <div className={`p-2 sm:p-2.5 rounded-lg ${action.color} shrink-0`}>
+                <action.icon className="h-4.5 w-4.5 sm:h-5 sm:w-5" />
               </div>
-              <span className="font-bold text-xs tracking-tight">{translations[language][action.key] || action.label}</span>
+              <span className="font-bold text-[10px] sm:text-xs tracking-tight leading-tight">{translations[language][action.key] || action.label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Weather & Active Counts Row */}
-      <div className="grid md:grid-cols-3 gap-5">
+      {/* Weather Row */}
+      <div className="w-full">
         {/* Weather card */}
-        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft md:col-span-2">
+        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft w-full">
           <div className="flex justify-between items-center border-b border-border pb-3">
             <div className="flex items-center gap-2">
               <CloudSun className="h-5 w-5 text-brand" />
@@ -172,24 +411,6 @@ export function OverviewTab({ language, setActiveTab }: OverviewTabProps) {
               </p>
             </div>
           )}
-        </div>
-
-        {/* Stats counters */}
-        <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
-          <div className="flex items-center gap-2 border-b border-border pb-3">
-            <Package className="h-5 w-5 text-brand" />
-            <span className="font-bold text-sm">Pending Actions</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-center">
-            <div onClick={() => setActiveTab("tickets")} className="p-3 bg-muted/30 border border-border rounded-xl cursor-pointer hover:border-brand/40">
-              <p className="text-2xl font-extrabold text-foreground">{dashboardData.openTicketsCount}</p>
-              <p className="text-[10px] font-semibold text-muted-foreground mt-1">Open Tickets</p>
-            </div>
-            <div onClick={() => setActiveTab("consultations")} className="p-3 bg-muted/30 border border-border rounded-xl cursor-pointer hover:border-brand/40">
-              <p className="text-2xl font-extrabold text-foreground">{dashboardData.activeConsultationsCount}</p>
-              <p className="text-[10px] font-semibold text-muted-foreground mt-1">Active Consults</p>
-            </div>
-          </div>
         </div>
       </div>
 

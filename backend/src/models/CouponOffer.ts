@@ -43,4 +43,7 @@ const couponOfferSchema = new Schema<ICouponOffer>(
   { timestamps: true }
 );
 
+couponOfferSchema.index({ merchantId: 1, createdAt: -1 });
+
 export const CouponOffer = model<ICouponOffer>('CouponOffer', couponOfferSchema);
+

@@ -88,4 +88,8 @@ const productSchema = new Schema<IProduct>({
   lowStockThreshold: { type: Number, default: 5 }
 }, { timestamps: true });
 
+productSchema.index({ merchantId: 1, status: 1, isEnabled: 1 });
+productSchema.index({ merchantId: 1, stock: 1 });
+productSchema.index({ category: 1 });
+
 export const Product = model<IProduct>('Product', productSchema);

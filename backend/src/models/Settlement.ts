@@ -45,4 +45,7 @@ const settlementSchema = new Schema<ISettlement>(
   { timestamps: true }
 );
 
+settlementSchema.index({ merchantId: 1, createdAt: -1 });
+
 export const Settlement = model<ISettlement>('Settlement', settlementSchema);
+

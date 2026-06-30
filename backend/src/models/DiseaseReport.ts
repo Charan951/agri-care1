@@ -75,4 +75,9 @@ const diseaseReportSchema = new Schema<IDiseaseReport>(
   { timestamps: true }
 );
 
+diseaseReportSchema.index({ farmerId: 1, status: 1, createdAt: -1 });
+diseaseReportSchema.index({ assignedSpecialistId: 1, status: 1 });
+diseaseReportSchema.index({ status: 1, priority: 1, createdAt: -1 });
+diseaseReportSchema.index({ cropName: 'text', symptoms: 'text' });
+
 export const DiseaseReport = model<IDiseaseReport>('DiseaseReport', diseaseReportSchema);

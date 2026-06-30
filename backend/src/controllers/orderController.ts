@@ -12,27 +12,35 @@ import mongoose from 'mongoose';
 // ==========================================
 export const getOrdersList = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { search, status } = req.query;
+    const { status, farmerId, merchantId, page = 1, limit = 20 } = req.query;
     const query: any = {};
 
     if (status) query.status = status;
+    if (farmerId) query.farmerId = farmerId;
+    if (merchantId) query.merchantId = merchantId;
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
 
     const orders = await Order.find(query)
       .populate('merchantId', 'name businessName')
       .populate('farmerId', 'name email mobile')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
-    if (search) {
-      const filtered = orders.filter(o => 
-        (o.farmerId as any)?.name.toLowerCase().includes(String(search).toLowerCase()) ||
-        (o.merchantId as any)?.businessName.toLowerCase().includes(String(search).toLowerCase()) ||
-        o.items.some(item => item.product.toLowerCase().includes(String(search).toLowerCase()))
-      );
-      res.json(filtered);
-      return;
-    }
+    const total = await Order.countDocuments(query);
 
-    res.json(orders);
+    res.json({
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -104,11 +112,28 @@ export const deleteOrderRecord = async (req: AuthenticatedRequest, res: Response
 // ==========================================
 export const getMerchantOrders = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
     const merchantId = req.user?.id || req.user?._id;
+
     const orders = await Order.find({ merchantId })
       .populate('farmerId', 'name email mobile savedAddresses')
-      .sort({ createdAt: -1 });
-    res.json(orders);
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    const total = await Order.countDocuments({ merchantId });
+
+    res.json({
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to fetch orders', error: err.message });
   }
@@ -134,6 +159,9 @@ export const updateOrderStatus = async (req: AuthenticatedRequest, res: Response
     }
 
     await order.save();
+    emitToRoom(`user_${order.farmerId}`, 'order_updated', { orderId: id, status });
+    emitToRoom('role_ADMIN', 'order_updated', { orderId: id, status });
+    emitToRoom(`user_${order.merchantId}`, 'order_updated', { orderId: id, status });
     res.json({ message: `Order status updated to ${status}`, order });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to update status', error: err.message });
@@ -159,6 +187,9 @@ export const updateOrderTracking = async (req: AuthenticatedRequest, res: Respon
     }
 
     await order.save();
+    emitToRoom(`user_${order.farmerId}`, 'order_updated', { orderId: id, status: order.status });
+    emitToRoom('role_ADMIN', 'order_updated', { orderId: id, status: order.status });
+    emitToRoom(`user_${order.merchantId}`, 'order_updated', { orderId: id, status: order.status });
     res.json({ message: 'Tracking information updated successfully', order });
   } catch (err: any) {
     res.status(500).json({ message: 'Failed to update tracking', error: err.message });
@@ -211,6 +242,7 @@ export const processCheckout = async (req: AuthenticatedRequest, res: Response):
 
     emitToRoom(`user_${farmerId}`, 'order_updated', { orderId: order._id, status: 'PENDING' });
     emitToRoom('role_ADMIN', 'new_order_placed', { orderId: order._id });
+    emitToRoom(`user_${merchantId}`, 'new_order_placed', { orderId: order._id });
 
     res.status(201).json({
       message: 'Checkout complete. Order placed successfully.',
@@ -224,8 +256,26 @@ export const processCheckout = async (req: AuthenticatedRequest, res: Response):
 
 export const getFarmerOrders = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const orders = await Order.find({ farmerId: req.user?._id }).sort({ createdAt: -1 });
-    res.json({ orders });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const orders = await Order.find({ farmerId: req.user?._id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    const total = await Order.countDocuments({ farmerId: req.user?._id });
+
+    res.json({
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching orders' });
   }
@@ -269,6 +319,8 @@ export const cancelOrder = async (req: AuthenticatedRequest, res: Response): Pro
     );
 
     emitToRoom(`user_${order.farmerId}`, 'order_updated', { orderId: id, status: 'CANCELLED' });
+    emitToRoom('role_ADMIN', 'order_updated', { orderId: id, status: 'CANCELLED' });
+    emitToRoom(`user_${order.merchantId}`, 'order_updated', { orderId: id, status: 'CANCELLED' });
 
     res.json({ message: 'Order cancelled and refund initiated successfully', order });
   } catch (error: any) {
@@ -294,6 +346,8 @@ export const requestOrderReturn = async (req: AuthenticatedRequest, res: Respons
     await order.save();
 
     emitToRoom(`user_${order.farmerId}`, 'order_updated', { orderId: id, status: 'RETURN_REQUESTED' });
+    emitToRoom('role_ADMIN', 'order_updated', { orderId: id, status: 'RETURN_REQUESTED' });
+    emitToRoom(`user_${order.merchantId}`, 'order_updated', { orderId: id, status: 'RETURN_REQUESTED' });
 
     res.json({ message: 'Return request submitted successfully', order });
   } catch (error: any) {

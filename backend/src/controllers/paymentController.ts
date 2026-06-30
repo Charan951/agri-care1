@@ -23,6 +23,11 @@ const razorpay = new Razorpay({
 // ==========================================
 export const getPaymentsList = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
     const payments = await Payment.find()
       .populate({
         path: 'orderId',
@@ -31,9 +36,21 @@ export const getPaymentsList = async (req: AuthenticatedRequest, res: Response):
           { path: 'merchantId', select: 'name businessName' }
         ]
       })
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
-    res.json(payments);
+    const total = await Payment.countDocuments();
+
+    res.json({
+      payments,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -209,6 +226,7 @@ export const verifyCheckoutPayment = async (req: AuthenticatedRequest, res: Resp
 
     emitToRoom(`user_${farmerId}`, 'order_updated', { orderId: order._id, status: 'PENDING' });
     emitToRoom('role_ADMIN', 'new_order_placed', { orderId: order._id });
+    emitToRoom(`user_${merchantId}`, 'new_order_placed', { orderId: order._id });
 
     res.status(201).json({
       message: 'Payment verified and order placed successfully.',
@@ -302,6 +320,7 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
       ]
     });
     await consultation.save();
+    await consultation.populate('reportId');
 
     const payment = new Payment({
       orderId: reportId,
@@ -317,6 +336,7 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
     await report.save();
 
     emitToRoom('role_ADMIN', 'new_consultation_request', { consultationId: consultation._id });
+    emitToRoom('role_AGRI_SPECIALIST', 'new_consultation_request', { consultationId: consultation._id });
     emitToRoom(`user_${farmerId}`, 'consultation_updated', { consultationId: consultation._id, status: 'PENDING' });
 
     res.status(201).json({
@@ -331,10 +351,48 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
 
 export const getFarmerPayments = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const orders = await Order.find({ farmerId: req.user?._id });
-    const orderIds = orders.map(o => o._id);
-    const payments = await Payment.find({ orderId: { $in: orderIds } }).sort({ createdAt: -1 });
-    res.json({ payments });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const paymentsResult = await Payment.aggregate([
+      {
+        $lookup: {
+          from: 'orders',
+          localField: 'orderId',
+          foreignField: '_id',
+          as: 'order'
+        }
+      },
+      { $unwind: '$order' },
+      { $match: { 'order.farmerId': new mongoose.Types.ObjectId(req.user?._id) } },
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limitNum }
+          ],
+          total: [
+            { $count: 'count' }
+          ]
+        }
+      }
+    ]);
+
+    const payments = paymentsResult[0]?.data || [];
+    const total = paymentsResult[0]?.total[0]?.count || 0;
+
+    res.json({
+      payments,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching payments' });
   }

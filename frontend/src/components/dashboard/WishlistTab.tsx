@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Trash2, ShoppingCart, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 interface WishlistTabProps {
@@ -26,9 +27,24 @@ export function WishlistTab({ onCartOrWishlistUpdate }: WishlistTabProps) {
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     fetchWishlist();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleWishlistUpdated = (data: any) => {
+      setWishlist(data.wishlist || []);
+    };
+
+    socket.on("wishlist_updated", handleWishlistUpdated);
+    return () => {
+      socket.off("wishlist_updated", handleWishlistUpdated);
+    };
+  }, [socket]);
 
   const handleRemoveFromWishlist = async (productId: string) => {
     try {

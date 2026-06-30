@@ -37,7 +37,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       console.log('Socket.IO connected to backend');
       
       // Join room for real-time updates
-      socketInstance.emit('join_user_room', user.id);
+      socketInstance.emit('join_user_room', user.id, user.role);
     });
 
     socketInstance.on('disconnect', () => {

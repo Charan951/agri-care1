@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   RefreshCw
 } from "lucide-react";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 interface Stats {
@@ -74,9 +75,43 @@ export function OverviewTab() {
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchData(true);
+    };
+
+    socket.on("new_order_placed", handleUpdate);
+    socket.on("order_updated", handleUpdate);
+    socket.on("new_consultation_request", handleUpdate);
+    socket.on("consultation_accepted", handleUpdate);
+    socket.on("consultation_rejected", handleUpdate);
+    socket.on("consultation_updated", handleUpdate);
+    socket.on("new_report_created", handleUpdate);
+    socket.on("report_updated", handleUpdate);
+    socket.on("new_ticket_created", handleUpdate);
+    socket.on("ticket_updated", handleUpdate);
+
+    return () => {
+      socket.off("new_order_placed", handleUpdate);
+      socket.off("order_updated", handleUpdate);
+      socket.off("new_consultation_request", handleUpdate);
+      socket.off("consultation_accepted", handleUpdate);
+      socket.off("consultation_rejected", handleUpdate);
+      socket.off("consultation_updated", handleUpdate);
+      socket.off("new_report_created", handleUpdate);
+      socket.off("report_updated", handleUpdate);
+      socket.off("new_ticket_created", handleUpdate);
+      socket.off("ticket_updated", handleUpdate);
+    };
+  }, [socket]);
 
   const handleRefresh = () => {
     setRefreshing(true);

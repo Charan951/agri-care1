@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Clipboard, Activity, Layers, BookOpen,
-  Settings, LogOut, Sprout, Bell, Star
+  Settings, LogOut, Sprout, Bell, Star, Menu, X, User
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSocket } from "@/context/SocketContext";
@@ -46,6 +46,16 @@ function SpecialistDashboard() {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev[activeTab]) return prev;
+      return { ...prev, [activeTab]: true };
+    });
+  }, [activeTab]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
   const [stats, setStats] = useState<any>({
     totalAssigned: 0,
     pending: 0,
@@ -133,7 +143,7 @@ function SpecialistDashboard() {
     }
   }, [isAuthenticated, user, searchQuery, statusFilter, cropFilter, priorityFilter, districtFilter]);
 
-  // Socket chat history updates
+  // Socket updates
   useEffect(() => {
     if (!socket) return;
 
@@ -147,10 +157,28 @@ function SpecialistDashboard() {
       loadConsultations();
     };
 
+    const handleConsultationRequest = () => {
+      loadConsultations();
+      loadDashboardData();
+    };
+
+    const handleConsultationUpdated = (data: any) => {
+      if (selectedConsultationId === data.consultationId) {
+        selectConsultation(data.consultationId);
+      }
+      loadConsultations();
+    };
+
     socket.on("consultation_chat_updated", handleChatUpdated);
+    socket.on("new_consultation_request", handleConsultationRequest);
+    socket.on("consultation_accepted", handleConsultationRequest);
+    socket.on("consultation_updated", handleConsultationUpdated);
 
     return () => {
       socket.off("consultation_chat_updated", handleChatUpdated);
+      socket.off("new_consultation_request", handleConsultationRequest);
+      socket.off("consultation_accepted", handleConsultationRequest);
+      socket.off("consultation_updated", handleConsultationUpdated);
     };
   }, [socket, selectedConsultationId]);
 
@@ -308,8 +336,12 @@ function SpecialistDashboard() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-muted/30 text-foreground font-sans">
-      {/* SIDEBAR NAVIGATION */}
-      <aside className="w-64 h-full border-r border-border bg-card flex flex-col justify-between p-4 flex-shrink-0">
+      {/* SIDEBAR FOR DESKTOP */}
+      <aside className={`hidden lg:flex h-full border-r border-border bg-card flex-col justify-between flex-shrink-0 transition-all duration-300 ${
+        isDesktopSidebarOpen
+          ? "w-64 p-4 opacity-100"
+          : "w-0 p-0 border-r-0 overflow-hidden opacity-0 pointer-events-none"
+      }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar">
           <div className="space-y-6">
             <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4">
@@ -324,7 +356,7 @@ function SpecialistDashboard() {
 
             <nav className="space-y-1">
               <button
-                onClick={() => { setActiveTab("overview"); setSelectedConsultationId(null); }}
+                onClick={() => { setActiveTab("overview"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
                   activeTab === "overview" && !selectedConsultationId
                     ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
@@ -335,7 +367,7 @@ function SpecialistDashboard() {
                 Dashboard Overview
               </button>
               <button
-                onClick={() => { setActiveTab("consultations"); }}
+                onClick={() => { setActiveTab("consultations"); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
                   activeTab === "consultations" || selectedConsultationId
                     ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
@@ -346,7 +378,7 @@ function SpecialistDashboard() {
                 Assigned Cases ({stats.active + stats.pending})
               </button>
               <button
-                onClick={() => { setActiveTab("history"); setSelectedConsultationId(null); }}
+                onClick={() => { setActiveTab("history"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
                   activeTab === "history"
                     ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
@@ -357,7 +389,7 @@ function SpecialistDashboard() {
                 Consultation History
               </button>
               <button
-                onClick={() => { setActiveTab("analytics"); setSelectedConsultationId(null); }}
+                onClick={() => { setActiveTab("analytics"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
                   activeTab === "analytics"
                     ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
@@ -368,7 +400,7 @@ function SpecialistDashboard() {
                 Performance Analytics
               </button>
               <button
-                onClick={() => { setActiveTab("knowledge"); setSelectedConsultationId(null); }}
+                onClick={() => { setActiveTab("knowledge"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
                 className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
                   activeTab === "knowledge"
                     ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
@@ -383,7 +415,7 @@ function SpecialistDashboard() {
 
           <div className="border-t border-border pt-4 space-y-3">
             <div 
-              onClick={() => { setActiveTab("profile"); setSelectedConsultationId(null); }}
+              onClick={() => { setActiveTab("profile"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
               className={`flex items-center gap-2.5 px-3 py-2 border rounded-lg cursor-pointer transition-colors ${
                 activeTab === "profile" ? "bg-emerald-600/15 border-emerald-500" : "bg-muted/30 hover:bg-muted"
               }`}
@@ -398,7 +430,7 @@ function SpecialistDashboard() {
             </div>
 
             <button
-              onClick={() => setActiveTab("settings")}
+              onClick={() => { setActiveTab("settings"); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 cursor-pointer ${
                 activeTab === "settings" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted bg-transparent"
               }`}
@@ -417,20 +449,83 @@ function SpecialistDashboard() {
         </div>
       </aside>
 
+      {/* MOBILE SIDEBAR OVERLAY DRAWER */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex lg:hidden bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-64 bg-card h-full p-4 flex flex-col justify-between border-r border-border animate-in slide-in-from-left duration-250 shadow-lift">
+            <div className="flex flex-col h-full overflow-y-auto no-scrollbar">
+              <div className="flex justify-between items-center pb-4 border-b border-border mb-4 text-left">
+                <span className="font-extrabold text-sm text-emerald-600 uppercase tracking-wider">AgriCare Menu</span>
+                <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer">
+                  <X className="h-5 w-5 text-muted-foreground" />
+                </button>
+              </div>
+              <nav className="space-y-1">
+                {[
+                  { id: "overview" as TabType, label: "Dashboard Overview", icon: LayoutDashboard },
+                  { id: "consultations" as TabType, label: `Assigned Cases (${stats.active + stats.pending})`, icon: Clipboard },
+                  { id: "history" as TabType, label: "Consultation History", icon: Activity },
+                  { id: "analytics" as TabType, label: "Performance Analytics", icon: Layers },
+                  { id: "knowledge" as TabType, label: "Agronomy Library", icon: BookOpen },
+                  { id: "profile" as TabType, label: "Profile Settings", icon: User },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id && !selectedConsultationId;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setSelectedConsultationId(null);
+                        setIsSidebarOpen(false);
+                      }}
+                      className={`flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
+                        isActive
+                          ? "bg-emerald-600 text-white shadow-soft"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground bg-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+            <div className="border-t border-border pt-4 space-y-3">
+              <button
+                onClick={handleLogout}
+                className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-red-500 hover:bg-red-500/10 transition-colors border-0 bg-transparent"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col overflow-hidden h-full">
+      <main className={`flex-1 flex flex-col overflow-hidden h-full lg:pb-0 ${!selectedConsultationId ? "pb-16" : ""}`}>
         {/* HEADER BAR */}
-        <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6 flex-shrink-0 text-left">
-          <div>
-            <h1 className="text-lg font-bold">
-              {selectedConsultationId ? "Consultation Workspace" : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              {selectedConsultationId 
-                ? `Currently processing case ID: ${selectedConsultationId}` 
-                : "Welcome to your AgriCare specialist dashboard"
-              }
-            </p>
+        <header className="h-16 border-b border-border bg-card flex items-center justify-between px-6 flex-shrink-0 text-left relative">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (window.innerWidth >= 1024) {
+                  setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
+                } else {
+                  setIsSidebarOpen(true);
+                }
+              }}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground cursor-pointer hover:bg-muted"
+              title="Toggle Sidebar"
+            >
+              <Menu className="h-4.5 w-4.5" />
+            </button>
+            <div />
           </div>
           <div className="flex items-center gap-4">
             <Badge variant="outline" className="bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 font-semibold gap-1.5 py-1 px-3">
@@ -449,7 +544,18 @@ function SpecialistDashboard() {
         </header>
 
         {/* TAB CONTENTS */}
-        <div className="flex-1 overflow-y-auto bg-muted/20 p-6 no-scrollbar">
+        <div className="flex-1 overflow-y-auto bg-muted/20 p-6 no-scrollbar text-left">
+          <div className="mb-6">
+            <h1 className="text-2xl font-black tracking-tight text-foreground">
+              {selectedConsultationId ? "Consultation Workspace" : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              {selectedConsultationId 
+                ? `Currently processing case ID: ${selectedConsultationId}` 
+                : "Welcome to your AgriCare specialist dashboard"
+              }
+            </p>
+          </div>
           {/* CONSULTATION ACTIVE WORKSPACE OVERRIDE */}
           {selectedConsultationId && activeConsultation ? (
             <ConsultationWorkspace
@@ -474,7 +580,7 @@ function SpecialistDashboard() {
             />
           ) : (
             <>
-              {activeTab === "overview" && (
+              <div className={activeTab === "overview" ? "" : "hidden"}>
                 <OverviewTab
                   stats={stats}
                   recentActivities={recentActivities}
@@ -484,50 +590,62 @@ function SpecialistDashboard() {
                   selectConsultation={selectConsultation}
                   setActiveTab={setActiveTab}
                 />
+              </div>
+
+              {visitedTabs.consultations && (
+                <div className={activeTab === "consultations" ? "" : "hidden"}>
+                  <ConsultationsTab
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    statusFilter={statusFilter}
+                    setStatusFilter={setStatusFilter}
+                    priorityFilter={priorityFilter}
+                    setPriorityFilter={setPriorityFilter}
+                    districtFilter={districtFilter}
+                    setDistrictFilter={setDistrictFilter}
+                    assignedConsultations={assignedConsultations}
+                    handleAccept={handleAccept}
+                    handleRejectClick={handleRejectClick}
+                    selectConsultation={selectConsultation}
+                  />
+                </div>
               )}
 
-              {activeTab === "consultations" && (
-                <ConsultationsTab
-                  searchQuery={searchQuery}
-                  setSearchQuery={setSearchQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  priorityFilter={priorityFilter}
-                  setPriorityFilter={setPriorityFilter}
-                  districtFilter={districtFilter}
-                  setDistrictFilter={setDistrictFilter}
-                  assignedConsultations={assignedConsultations}
-                  handleAccept={handleAccept}
-                  handleRejectClick={handleRejectClick}
-                  selectConsultation={selectConsultation}
-                />
+              {visitedTabs.history && (
+                <div className={activeTab === "history" ? "" : "hidden"}>
+                  <HistoryTab
+                    assignedConsultations={assignedConsultations}
+                    selectConsultation={selectConsultation}
+                  />
+                </div>
               )}
 
-              {activeTab === "history" && (
-                <HistoryTab
-                  assignedConsultations={assignedConsultations}
-                  selectConsultation={selectConsultation}
-                />
+              {visitedTabs.analytics && (
+                <div className={activeTab === "analytics" ? "" : "hidden"}>
+                  <AnalyticsTab
+                    stats={stats}
+                  />
+                </div>
               )}
 
-              {activeTab === "analytics" && (
-                <AnalyticsTab
-                  stats={stats}
-                />
+              {visitedTabs.knowledge && (
+                <div className={activeTab === "knowledge" ? "" : "hidden"}>
+                  <KnowledgeTab />
+                </div>
               )}
 
-              {activeTab === "knowledge" && (
-                <KnowledgeTab />
+              {visitedTabs.profile && (
+                <div className={activeTab === "profile" ? "" : "hidden"}>
+                  <ProfileTab
+                    user={user}
+                  />
+                </div>
               )}
 
-              {activeTab === "profile" && (
-                <ProfileTab
-                  user={user}
-                />
-              )}
-
-              {activeTab === "settings" && (
-                <SettingsTab />
+              {visitedTabs.settings && (
+                <div className={activeTab === "settings" ? "" : "hidden"}>
+                  <SettingsTab />
+                </div>
               )}
             </>
           )}
@@ -562,6 +680,38 @@ function SpecialistDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      {!selectedConsultationId && (
+        <nav className="fixed bottom-0 inset-x-0 h-16 bg-card border-t border-border flex items-center justify-around z-40 lg:hidden shadow-lift shrink-0">
+          {[
+            { id: "overview" as TabType, label: "Home", icon: LayoutDashboard },
+            { id: "consultations" as TabType, label: "Cases", icon: Clipboard },
+            { id: "history" as TabType, label: "History", icon: Activity },
+            { id: "profile" as TabType, label: "Profile", icon: User },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id && !selectedConsultationId;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  setSelectedConsultationId(null);
+                }}
+                className={`flex flex-col items-center gap-1 p-2 transition-colors cursor-pointer border-0 bg-transparent ${
+                  isActive ? "text-emerald-600 font-bold" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                <span className="text-[9px] font-bold tracking-tight">
+                  {tab.label}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

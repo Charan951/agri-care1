@@ -78,14 +78,36 @@ export const deleteNotificationRecord = async (req: AuthenticatedRequest, res: R
 // ==========================================
 export const getFarmerNotifications = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
     const notifications = await SystemNotification.find({
       $or: [
         { readBy: { $ne: req.user?._id } },
         { readBy: req.user?._id }
       ]
-    }).sort({ createdAt: -1 }).limit(10);
+    })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    const total = await SystemNotification.countDocuments({
+      $or: [
+        { readBy: { $ne: req.user?._id } },
+        { readBy: req.user?._id }
+      ]
+    });
 
-    res.json({ notifications });
+    res.json({
+      notifications,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching notifications' });
   }

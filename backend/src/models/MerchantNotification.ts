@@ -24,4 +24,7 @@ const merchantNotificationSchema = new Schema<IMerchantNotification>({
   createdAt: { type: Date, default: Date.now },
 });
 
+merchantNotificationSchema.index({ merchantId: 1, createdAt: -1 });
+
 export const MerchantNotification = model<IMerchantNotification>('MerchantNotification', merchantNotificationSchema);
+

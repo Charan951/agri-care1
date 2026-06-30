@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { Store, Heart, ShoppingCart, X, Star, RefreshCw } from "lucide-react";
+import { Store, Heart, ShoppingCart, X, Star, RefreshCw, Zap } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 
 interface MarketplaceTabProps {
   wishlistIds: string[];
   onCartOrWishlistUpdate: () => void;
+  setActiveTab?: (tab: any) => void;
 }
 
-export function MarketplaceTab({ wishlistIds = [], onCartOrWishlistUpdate }: MarketplaceTabProps) {
+export function MarketplaceTab({ wishlistIds = [], onCartOrWishlistUpdate, setActiveTab }: MarketplaceTabProps) {
   const [products, setProducts] = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [marketSearch, setMarketSearch] = useState("");
@@ -47,6 +48,27 @@ export function MarketplaceTab({ wishlistIds = [], onCartOrWishlistUpdate }: Mar
       if (res.ok) {
         toast.success("Product added to cart!");
         onCartOrWishlistUpdate();
+      } else {
+        toast.error("Failed to add to cart");
+      }
+    } catch (err) {
+      toast.error("Failed to add to cart");
+    }
+  };
+
+  const handleBuyNow = async (productId: string) => {
+    try {
+      const res = await apiFetch("/api/customer/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId, quantity: 1 })
+      });
+      if (res.ok) {
+        toast.success("Product added to cart!");
+        onCartOrWishlistUpdate();
+        if (setActiveTab) {
+          setActiveTab("cart");
+        }
       } else {
         toast.error("Failed to add to cart");
       }
@@ -128,16 +150,23 @@ export function MarketplaceTab({ wishlistIds = [], onCartOrWishlistUpdate }: Mar
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => handleAddToWishlist(selectedProduct._id)}
-                  className="p-3 border border-border rounded-xl text-muted-foreground hover:text-red-500 hover:bg-red-50 cursor-pointer bg-card transition-colors"
+                  className="p-3 border border-border rounded-xl text-muted-foreground hover:text-red-500 hover:bg-red-50 cursor-pointer bg-card transition-colors shrink-0"
                 >
                   <Heart className={`h-5 w-5 ${isSelectedProductWishlisted ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
                 </button>
                 <button
                   onClick={() => handleAddToCart(selectedProduct._id)}
                   disabled={selectedProduct.stock <= 0}
-                  className="flex-grow bg-brand text-brand-foreground font-bold text-xs py-3 rounded-xl hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border-0 cursor-pointer"
+                  className="flex-1 bg-brand-soft text-brand border border-brand/10 font-bold text-xs py-3 rounded-xl hover:bg-brand/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <ShoppingCart className="h-4.5 w-4.5" /> Add to Shopping Cart
+                  <ShoppingCart className="h-4.5 w-4.5" /> Add to Cart
+                </button>
+                <button
+                  onClick={() => handleBuyNow(selectedProduct._id)}
+                  disabled={selectedProduct.stock <= 0}
+                  className="flex-1 bg-brand text-brand-foreground font-bold text-xs py-3 rounded-xl hover:bg-brand/95 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border-0 cursor-pointer shadow-soft"
+                >
+                  <Zap className="h-4.5 w-4.5 fill-current" /> Buy Now
                 </button>
               </div>
             </div>

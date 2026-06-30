@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ShoppingCart, Trash2, CheckCircle2, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 //ji
 const loadRazorpayScript = () => {
@@ -59,9 +60,24 @@ export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) 
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     fetchCartAndProfile();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleCartUpdated = (data: any) => {
+      setCart(data.cart || []);
+    };
+
+    socket.on("cart_updated", handleCartUpdated);
+    return () => {
+      socket.off("cart_updated", handleCartUpdated);
+    };
+  }, [socket]);
 
   const handleAddToCart = async (productId: string, quantity: number) => {
     try {
@@ -229,18 +245,18 @@ export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) 
             <button onClick={() => setActiveTab("marketplace")} className="bg-brand text-brand-foreground text-xs font-bold px-4 py-2 rounded-lg cursor-pointer border-0">Browse Shop</button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {cart.map((item) => (
-              <div key={item._id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-xl gap-4 bg-card">
-                <div className="flex items-center gap-4">
-                  <img src={item.product?.imageUrl} alt="" className="h-16 w-16 object-cover rounded-lg border bg-muted" />
-                  <div className="text-left">
-                    <h4 className="font-bold text-xs text-foreground">{item.product?.name}</h4>
-                    <p className="text-brand font-bold text-xs mt-1">₹{item.product?.price} each</p>
+              <div key={item._id} className="flex flex-row items-center justify-between p-3.5 border border-border rounded-xl gap-4 bg-card shadow-soft">
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                  <img src={item.product?.imageUrl} alt="" className="h-14 w-14 object-cover rounded-lg border bg-muted shrink-0" />
+                  <div className="text-left min-w-0">
+                    <h4 className="font-bold text-xs text-foreground truncate">{item.product?.name}</h4>
+                    <p className="text-brand font-bold text-xs mt-0.5">₹{item.product?.price} each</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 w-full sm:w-auto justify-between">
+                <div className="flex items-center gap-3.5 shrink-0">
                   <div className="flex items-center border border-border rounded-lg text-xs overflow-hidden bg-background">
                     <button
                       onClick={() => handleAddToCart(item.product?._id, -1)}
@@ -249,7 +265,7 @@ export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) 
                     >
                       -
                     </button>
-                    <span className="px-3 font-semibold text-foreground">{item.quantity}</span>
+                    <span className="px-2.5 font-bold text-foreground text-xs">{item.quantity}</span>
                     <button
                       onClick={() => handleAddToCart(item.product?._id, 1)}
                       className="px-2 py-1 bg-muted hover:bg-muted/70 font-bold border-0 cursor-pointer text-foreground"
@@ -260,7 +276,7 @@ export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) 
 
                   <button
                     onClick={() => handleRemoveFromCart(item.product?._id)}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded bg-transparent border-0 cursor-pointer"
+                    className="p-2 text-red-500 hover:bg-red-50 rounded bg-transparent border-0 cursor-pointer transition-colors"
                   >
                     <Trash2 className="h-4.5 w-4.5" />
                   </button>

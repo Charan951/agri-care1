@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Search, Plus, Edit2, Trash2, CheckCircle2, ShieldCheck, XCircle, AlertCircle, RefreshCw, X, CreditCard } from "lucide-react";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 interface Farmer {
@@ -55,7 +56,7 @@ export function PaymentManagementTab() {
       const response = await fetch("/api/admin/payments");
       if (response.ok) {
         const data = await response.json();
-        setPayments(data);
+        setPayments(data.payments || data);
       } else {
         toast.error("Failed to load payment transactions.");
       }
@@ -69,19 +70,39 @@ export function PaymentManagementTab() {
 
   const fetchOrdersList = async () => {
     try {
-      const response = await fetch("/api/admin/orders");
+      const response = await fetch("/api/admin/orders?limit=100");
       if (response.ok) {
-        setOrders(await response.json());
+        const data = await response.json();
+        setOrders(data.orders || data);
       }
     } catch (err) {
       console.error(err);
     }
   };
 
+  const { socket } = useSocket();
+
   useEffect(() => {
     fetchPayments();
     fetchOrdersList();
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchPayments(true);
+      fetchOrdersList();
+    };
+
+    socket.on("new_order_placed", handleUpdate);
+    socket.on("order_updated", handleUpdate);
+
+    return () => {
+      socket.off("new_order_placed", handleUpdate);
+      socket.off("order_updated", handleUpdate);
+    };
+  }, [socket]);
 
   const handleRefresh = () => {
     setRefreshing(true);

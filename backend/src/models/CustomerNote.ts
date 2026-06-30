@@ -17,4 +17,7 @@ const customerNoteSchema = new Schema<ICustomerNote>(
   { timestamps: true }
 );
 
+customerNoteSchema.index({ merchantId: 1, farmerId: 1 });
+
 export const CustomerNote = model<ICustomerNote>('CustomerNote', customerNoteSchema);
+

@@ -12,24 +12,41 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 // ==========================================
 export const getOverviewStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const totalUsers = await User.countDocuments();
-    const farmersCount = await User.countDocuments({ role: 'FARMER' });
-    const specialistsCount = await User.countDocuments({ role: 'AGRI_SPECIALIST' });
-    const merchantsCount = await User.countDocuments({ role: 'MERCHANT' });
-
-    const activeDiseaseReports = await DiseaseReport.countDocuments({ status: { $ne: 'CLOSED' } });
-    const pendingConsultations = await Consultation.countDocuments({ status: 'PENDING' });
-
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
-    const dailyOrdersCount = await Order.countDocuments({ createdAt: { $gte: startOfToday } });
 
-    const successfulPayments = await Payment.find({ status: 'SUCCESSFUL' });
-    const totalRevenue = successfulPayments.reduce((acc, curr) => acc + curr.amount, 0);
+    const [
+      totalUsers,
+      farmersCount,
+      specialistsCount,
+      merchantsCount,
+      activeDiseaseReports,
+      pendingConsultations,
+      dailyOrdersCount,
+      revenueResult,
+      recentReports,
+      recentOrders,
+      recentUsers,
+      notifications
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: 'FARMER' }),
+      User.countDocuments({ role: 'AGRI_SPECIALIST' }),
+      User.countDocuments({ role: 'MERCHANT' }),
+      DiseaseReport.countDocuments({ status: { $ne: 'CLOSED' } }),
+      Consultation.countDocuments({ status: 'PENDING' }),
+      Order.countDocuments({ createdAt: { $gte: startOfToday } }),
+      Payment.aggregate([
+        { $match: { status: 'SUCCESSFUL' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]),
+      DiseaseReport.find().sort({ createdAt: -1 }).limit(3).populate('farmerId', 'name'),
+      Order.find().sort({ createdAt: -1 }).limit(3).populate('farmerId', 'name'),
+      User.find().sort({ createdAt: -1 }).limit(4),
+      SystemNotification.find().sort({ createdAt: -1 }).limit(5)
+    ]);
 
-    const recentReports = await DiseaseReport.find().sort({ createdAt: -1 }).limit(3).populate('farmerId', 'name');
-    const recentOrders = await Order.find().sort({ createdAt: -1 }).limit(3).populate('farmerId', 'name');
-    const recentUsers = await User.find().sort({ createdAt: -1 }).limit(4);
+    const totalRevenue = revenueResult.length ? revenueResult[0].total : 0;
 
     const recentActivities = [
       ...recentReports.map(r => ({
@@ -48,8 +65,6 @@ export const getOverviewStats = async (req: AuthenticatedRequest, res: Response)
         timestamp: u.createdAt
       }))
     ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()).slice(0, 7);
-
-    const notifications = await SystemNotification.find().sort({ createdAt: -1 }).limit(5);
 
     res.json({
       stats: {

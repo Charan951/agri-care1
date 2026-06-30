@@ -65,4 +65,8 @@ const orderSchema = new Schema<IOrder>(
   { timestamps: true }
 );
 
+orderSchema.index({ merchantId: 1, createdAt: -1 });
+orderSchema.index({ farmerId: 1, createdAt: -1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+
 export const Order = model<IOrder>('Order', orderSchema);

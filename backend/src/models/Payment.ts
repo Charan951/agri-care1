@@ -27,4 +27,7 @@ const paymentSchema = new Schema<IPayment>(
   { timestamps: true }
 );
 
+paymentSchema.index({ orderId: 1 });
+paymentSchema.index({ status: 1, createdAt: -1 });
+
 export const Payment = model<IPayment>('Payment', paymentSchema);

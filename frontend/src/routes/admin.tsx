@@ -16,8 +16,11 @@ import {
   Activity,
   User as UserIcon,
   Leaf,
+  Menu,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 // Tab Components
@@ -53,9 +56,35 @@ type TabType =
 
 function AdminDashboard() {
   const { user, loading, isAuthenticated, logout } = useAuth();
+  const { socket } = useSocket();
   const [activeTab, setActiveTab] = useState<TabType>("overview");
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev[activeTab]) return prev;
+      return { ...prev, [activeTab]: true };
+    });
+  }, [activeTab]);
+  const [userRoleFilter, setUserRoleFilter] = useState<string>("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const navigate = useNavigate();
+
+
+
+  const fetchNotificationsCount = async () => {
+    try {
+      const response = await fetch("/api/admin/overview");
+      if (response.ok) {
+        const data = await response.json();
+        const unread = data.notifications?.length || 0;
+        setUnreadNotifications(unread);
+      }
+    } catch (err) {
+      console.error("Error loading notification count", err);
+    }
+  };
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || (user?.role !== "ADMIN" && user?.role !== "SUPER_USER"))) {
@@ -65,23 +94,39 @@ function AdminDashboard() {
   }, [loading, isAuthenticated, user, navigate]);
 
   useEffect(() => {
-    // Fetch notifications count
-    const fetchNotificationsCount = async () => {
-      try {
-        const response = await fetch("/api/admin/overview");
-        if (response.ok) {
-          const data = await response.json();
-          const unread = data.notifications?.length || 0;
-          setUnreadNotifications(unread);
-        }
-      } catch (err) {
-        console.error("Error loading notification count", err);
-      }
-    };
     if (isAuthenticated && (user?.role === "ADMIN" || user?.role === "SUPER_USER")) {
       fetchNotificationsCount();
     }
   }, [isAuthenticated, user]);
+
+
+
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUpdate = () => {
+      fetchNotificationsCount();
+    };
+
+    socket.on("new_order_placed", handleUpdate);
+    socket.on("order_updated", handleUpdate);
+    socket.on("new_consultation_request", handleUpdate);
+    socket.on("new_report_created", handleUpdate);
+    socket.on("report_updated", handleUpdate);
+    socket.on("new_ticket_created", handleUpdate);
+    socket.on("ticket_updated", handleUpdate);
+
+    return () => {
+      socket.off("new_order_placed", handleUpdate);
+      socket.off("order_updated", handleUpdate);
+      socket.off("new_consultation_request", handleUpdate);
+      socket.off("new_report_created", handleUpdate);
+      socket.off("report_updated", handleUpdate);
+      socket.off("new_ticket_created", handleUpdate);
+      socket.off("ticket_updated", handleUpdate);
+    };
+  }, [socket]);
 
   if (loading) {
     return (
@@ -145,7 +190,11 @@ function AdminDashboard() {
   return (
     <div className="flex h-screen overflow-hidden bg-muted/40 text-foreground">
       {/* SIDEBAR */}
-      <aside className="w-64 h-full border-r border-border bg-card hidden lg:flex flex-col justify-between p-4 flex-shrink-0">
+      <aside className={`hidden lg:flex h-full border-r border-border bg-card flex-col justify-between flex-shrink-0 transition-all duration-300 ${
+        isSidebarOpen
+          ? "w-64 p-4 opacity-100"
+          : "w-0 p-0 border-r-0 overflow-hidden opacity-0 pointer-events-none"
+      }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar pr-1">
           <div className="space-y-6">
             <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4">
@@ -161,10 +210,18 @@ function AdminDashboard() {
                 .map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
+
+
+
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        if (window.innerWidth < 1024) {
+                          setIsSidebarOpen(false);
+                        }
+                      }}
                       className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
                         isActive
                           ? "bg-brand text-brand-foreground"
@@ -206,10 +263,14 @@ function AdminDashboard() {
       <div className="flex-1 h-full flex flex-col overflow-hidden">
         {/* HEADER */}
         <header className="flex h-14 items-center justify-between border-b border-border bg-card/85 backdrop-blur px-6 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold capitalize">
-              {activeTab.replace("reports", "disease reports").replace("ai", "AI prediction monitoring").replace("consultations", "consultations")}
-            </h2>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground cursor-pointer hover:bg-muted"
+              title="Toggle Sidebar"
+            >
+              <Menu className="h-4.5 w-4.5" />
+            </button>
           </div>
 
           <div className="flex items-center gap-4">
@@ -237,8 +298,8 @@ function AdminDashboard() {
         </header>
 
         {/* MOBILE MENU NAV BAR */}
-        <div className="border-b border-border bg-card p-2.5 overflow-x-auto whitespace-nowrap lg:hidden flex-shrink-0">
-          <div className="flex gap-1.5">
+        <div className="border-b border-border bg-card p-3 overflow-x-auto no-scrollbar whitespace-nowrap lg:hidden flex-shrink-0">
+          <div className="flex gap-2">
             {menuItems
               .filter((item) => item.roles.includes(user.role))
               .map((item) => {
@@ -248,13 +309,13 @@ function AdminDashboard() {
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                    className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all duration-200 cursor-pointer ${
                       isActive
-                        ? "bg-brand text-brand-foreground"
-                        : "border border-border text-muted-foreground bg-card hover:text-foreground"
+                        ? "bg-brand text-brand-foreground shadow-soft"
+                        : "border border-border/80 text-muted-foreground bg-card hover:text-foreground"
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5" />
+                    <Icon className="h-4 w-4" />
                     {item.label}
                   </button>
                 );
@@ -263,16 +324,57 @@ function AdminDashboard() {
         </div>
 
         {/* MAIN TAB CONTENT */}
-        <main className="flex-grow p-6 overflow-y-auto no-scrollbar">
-          {activeTab === "overview" && <OverviewTab />}
-          {activeTab === "users" && <UserManagementTab />}
-          {activeTab === "reports" && <DiseaseReportTab />}
-          {activeTab === "consultations" && <ConsultationTab />}
-          {activeTab === "ai" && <AIMonitoringTab />}
-          {activeTab === "merchants" && <MerchantMonitoringTab />}
-          {activeTab === "orders" && <OrderManagementTab />}
-          {activeTab === "payments" && <PaymentManagementTab />}
-          {activeTab === "analytics" && <AnalyticsTab />}
+        <main className="flex-grow p-6 overflow-y-auto no-scrollbar text-left">
+          <h1 className="text-2xl font-black tracking-tight text-foreground mb-6 capitalize">
+            {activeTab.replace("reports", "disease reports").replace("ai", "AI prediction monitoring").replace("consultations", "consultations")}
+          </h1>
+          <div className={activeTab === "overview" ? "" : "hidden"}>
+            <OverviewTab />
+          </div>
+          {visitedTabs.users && (
+            <div className={activeTab === "users" ? "" : "hidden"}>
+              <UserManagementTab
+                setActiveTab={setActiveTab}
+                roleFilter={userRoleFilter}
+                setRoleFilter={setUserRoleFilter}
+              />
+            </div>
+          )}
+          {visitedTabs.reports && (
+            <div className={activeTab === "reports" ? "" : "hidden"}>
+              <DiseaseReportTab />
+            </div>
+          )}
+          {visitedTabs.consultations && (
+            <div className={activeTab === "consultations" ? "" : "hidden"}>
+              <ConsultationTab />
+            </div>
+          )}
+          {visitedTabs.ai && (
+            <div className={activeTab === "ai" ? "" : "hidden"}>
+              <AIMonitoringTab />
+            </div>
+          )}
+          {visitedTabs.merchants && (
+            <div className={activeTab === "merchants" ? "" : "hidden"}>
+              <MerchantMonitoringTab />
+            </div>
+          )}
+          {visitedTabs.orders && (
+            <div className={activeTab === "orders" ? "" : "hidden"}>
+              <OrderManagementTab />
+            </div>
+          )}
+          {visitedTabs.payments && (
+            <div className={activeTab === "payments" ? "" : "hidden"}>
+              <PaymentManagementTab />
+            </div>
+          )}
+          {visitedTabs.analytics && (
+            <div className={activeTab === "analytics" ? "" : "hidden"}>
+              <AnalyticsTab />
+            </div>
+          )}
         </main>
       </div>
     </div>

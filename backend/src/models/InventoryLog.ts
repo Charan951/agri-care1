@@ -26,4 +26,7 @@ const inventoryLogSchema = new Schema<IInventoryLog>({
   createdAt: { type: Date, default: Date.now },
 });
 
+inventoryLogSchema.index({ merchantId: 1, createdAt: -1 });
+
 export const InventoryLog = model<IInventoryLog>('InventoryLog', inventoryLogSchema);
+

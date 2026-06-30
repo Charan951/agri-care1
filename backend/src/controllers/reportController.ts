@@ -6,6 +6,7 @@ import { Product } from '../models/Product';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { analyzeCropDisease } from '../utils/gemini';
 import mongoose from 'mongoose';
+import { emitToRoom } from '../utils/socket';
 
 // Helper to check object id validity
 const isValidId = (id: string) => mongoose.Types.ObjectId.isValid(id);
@@ -15,28 +16,39 @@ const isValidId = (id: string) => mongoose.Types.ObjectId.isValid(id);
 // ==========================================
 export const getDiseaseReports = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { search, status, priority } = req.query;
+    const { search, status, priority, farmerId, assignedSpecialistId, page = 1, limit = 20 } = req.query;
     const query: any = {};
 
     if (status) query.status = status;
     if (priority) query.priority = priority;
+    if (farmerId) query.farmerId = farmerId;
+    if (assignedSpecialistId) query.assignedSpecialistId = assignedSpecialistId;
+    if (search) {
+      query.$text = { $search: search as string };
+    }
+
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
 
     const reports = await DiseaseReport.find(query)
       .populate('farmerId', 'name email mobile')
       .populate('assignedSpecialistId', 'name specialization')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
-    if (search) {
-      const filtered = reports.filter(r => 
-        r.cropName.toLowerCase().includes(String(search).toLowerCase()) ||
-        r.symptoms.toLowerCase().includes(String(search).toLowerCase()) ||
-        (r.farmerId as any)?.name.toLowerCase().includes(String(search).toLowerCase())
-      );
-      res.json(filtered);
-      return;
-    }
+    const total = await DiseaseReport.countDocuments(query);
 
-    res.json(reports);
+    res.json({
+      reports,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -59,6 +71,10 @@ export const createDiseaseReport = async (req: AuthenticatedRequest, res: Respon
 
     await newReport.save();
 
+    emitToRoom('role_ADMIN', 'new_report_created', { reportId: newReport._id });
+    emitToRoom('role_AGRI_SPECIALIST', 'new_report_created', { reportId: newReport._id });
+    emitToRoom(`user_${newReport.farmerId}`, 'report_created', { reportId: newReport._id });
+
     // Create consultation if specialist is assigned during creation
     if (newReport.assignedSpecialistId) {
       const consultation = new Consultation({
@@ -75,7 +91,15 @@ export const createDiseaseReport = async (req: AuthenticatedRequest, res: Respon
         ]
       });
       await consultation.save();
+      emitToRoom('role_ADMIN', 'new_consultation_request', { consultationId: consultation._id });
+      emitToRoom('role_AGRI_SPECIALIST', 'new_consultation_request', { consultationId: consultation._id });
+      emitToRoom(`user_${newReport.farmerId}`, 'consultation_updated', { consultationId: consultation._id, status: 'ACTIVE' });
     }
+
+    await newReport.populate([
+      { path: 'farmerId', select: 'name email mobile' },
+      { path: 'assignedSpecialistId', select: 'name specialization' }
+    ]);
 
     res.status(201).json({ message: 'Disease report created successfully.', report: newReport });
   } catch (error: any) {
@@ -131,14 +155,29 @@ export const updateDiseaseReport = async (req: AuthenticatedRequest, res: Respon
           ]
         });
         await consultation.save();
+        emitToRoom('role_ADMIN', 'new_consultation_request', { consultationId: consultation._id });
+        emitToRoom('role_AGRI_SPECIALIST', 'new_consultation_request', { consultationId: consultation._id });
+        emitToRoom(`user_${report.farmerId}`, 'consultation_updated', { consultationId: consultation._id, status: 'ACTIVE' });
       }
     } else if (assignedSpecialistId === null && oldSpecialistId) {
       const consultation = await Consultation.findOne({ reportId: report._id });
       if (consultation) {
         consultation.specialistId = null;
         await consultation.save();
+        emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: consultation._id });
+        emitToRoom('role_AGRI_SPECIALIST', 'consultation_updated', { consultationId: consultation._id });
+        emitToRoom(`user_${report.farmerId}`, 'consultation_updated', { consultationId: consultation._id });
       }
     }
+
+    emitToRoom('role_ADMIN', 'report_updated', { reportId: id });
+    emitToRoom('role_AGRI_SPECIALIST', 'report_updated', { reportId: id });
+    emitToRoom(`user_${report.farmerId}`, 'report_updated', { reportId: id });
+
+    await report.populate([
+      { path: 'farmerId', select: 'name email mobile' },
+      { path: 'assignedSpecialistId', select: 'name specialization' }
+    ]);
 
     res.json({ message: 'Disease report updated successfully.', report });
   } catch (error: any) {
@@ -154,6 +193,10 @@ export const deleteDiseaseReport = async (req: AuthenticatedRequest, res: Respon
       res.status(404).json({ message: 'Disease report not found.' });
       return;
     }
+    emitToRoom('role_ADMIN', 'report_deleted', { reportId: id });
+    emitToRoom('role_AGRI_SPECIALIST', 'report_deleted', { reportId: id });
+    emitToRoom(`user_${deleted.farmerId}`, 'report_deleted', { reportId: id });
+
     res.json({ message: 'Disease report deleted successfully.' });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -207,6 +250,10 @@ export const runAIDetection = async (req: AuthenticatedRequest, res: Response): 
 
     await report.save();
 
+    emitToRoom('role_ADMIN', 'new_report_created', { reportId: report._id });
+    emitToRoom('role_AGRI_SPECIALIST', 'new_report_created', { reportId: report._id });
+    emitToRoom(`user_${req.user?._id}`, 'report_created', { reportId: report._id });
+
     let matchedProducts: any[] = [];
     if (prediction.recommendedProducts && prediction.recommendedProducts.length > 0) {
       const regexQueries = prediction.recommendedProducts.map(kw => new RegExp(kw, 'i'));
@@ -235,10 +282,29 @@ export const runAIDetection = async (req: AuthenticatedRequest, res: Response): 
 
 export const getDetectionHistory = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const reports = await DiseaseReport.find({ farmerId: req.user?._id })
-      .populate('assignedSpecialistId', 'name specialization rating mobile')
-      .sort({ createdAt: -1 });
-    res.json({ reports });
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [reports, total] = await Promise.all([
+      DiseaseReport.find({ farmerId: req.user?._id })
+        .populate('assignedSpecialistId', 'name specialization rating mobile')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      DiseaseReport.countDocuments({ farmerId: req.user?._id })
+    ]);
+
+    res.json({
+      reports,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error fetching scan history' });
   }
@@ -249,11 +315,28 @@ export const getDetectionHistory = async (req: AuthenticatedRequest, res: Respon
 // ==========================================
 export const getAIPredictions = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = parseInt(limit as string, 10);
+    const skip = (pageNum - 1) * limitNum;
+
     const predictions = await DiseaseReport.find({}, 'cropName symptoms imageUrl aiPrediction specialistDiagnosis createdAt farmerId')
       .populate('farmerId', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
-    res.json(predictions);
+    const total = await DiseaseReport.countDocuments();
+
+    res.json({
+      predictions,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

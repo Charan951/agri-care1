@@ -61,10 +61,26 @@ export function TicketsTab() {
         .then(resData => setTickets(resData.tickets || []));
     };
 
+    const handleTicketStatusUpdate = (data: any) => {
+      if (selectedTicket && selectedTicket._id === data.ticketId) {
+        setSelectedTicket((prev: any) => {
+          if (!prev) return null;
+          return { ...prev, status: data.status };
+        });
+      }
+      
+      // Reload tickets list
+      apiFetch("/api/customer/tickets")
+        .then(res => res.json())
+        .then(resData => setTickets(resData.tickets || []));
+    };
+
     socket.on("ticket_chat_updated", handleTicketChatUpdate);
+    socket.on("ticket_status_updated", handleTicketStatusUpdate);
 
     return () => {
       socket.off("ticket_chat_updated", handleTicketChatUpdate);
+      socket.off("ticket_status_updated", handleTicketStatusUpdate);
     };
   }, [socket, selectedTicket]);
 
