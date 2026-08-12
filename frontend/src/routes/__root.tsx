@@ -48,7 +48,7 @@ function RootComponent() {
         )}
       </main>
       {!isHideLayout && <Footer />}
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors duration={1300} closeButton />
     </div>
   );
 }

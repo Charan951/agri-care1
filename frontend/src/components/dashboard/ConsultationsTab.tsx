@@ -24,6 +24,7 @@ import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 import { translations } from "./translations";
 import { compressImage } from "@/lib/utils";
+import { VoiceCallOverlay } from "./VoiceCallOverlay";
 
 interface ConsultationsTabProps {
   language: "en" | "te";
@@ -33,6 +34,7 @@ interface ConsultationsTabProps {
   onCartOrWishlistUpdate?: () => void;
   autoOpenBookingReportId?: string;
   setAutoOpenBookingReportId?: (id: string) => void;
+  isActive?: boolean;
 }
 
 export function ConsultationsTab({ 
@@ -42,7 +44,8 @@ export function ConsultationsTab({
   setDashboardActiveTab,
   onCartOrWishlistUpdate,
   autoOpenBookingReportId,
-  setAutoOpenBookingReportId
+  setAutoOpenBookingReportId,
+  isActive
 }: ConsultationsTabProps) {
   const { user } = useAuth();
   const { socket } = useSocket();
@@ -62,6 +65,7 @@ export function ConsultationsTab({
   // Chat input states
   const [consultMessage, setConsultMessage] = useState("");
   const [isVoiceRecording, setIsVoiceRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [isSpecialistTyping, setIsSpecialyping] = useState(false);
 
   // Rating & review states
@@ -75,6 +79,64 @@ export function ConsultationsTab({
   const [historyReports, setHistoryReports] = useState<any[]>([]);
   const [selectedReportId, setSelectedReportId] = useState("");
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [consultationType, setConsultationType] = useState<"CHAT" | "VOICE_CALL">("CHAT");
+  const [timeSlot, setTimeSlot] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 15);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+  const [specialistsList, setSpecialistsList] = useState<any[]>([]);
+  const [loadingSpecialists, setLoadingSpecialists] = useState(false);
+
+  useEffect(() => {
+    if (selectedConsultation && !selectedConsultation.specialistId) {
+      const fetchSpecialists = async () => {
+        try {
+          setLoadingSpecialists(true);
+          const res = await apiFetch("/api/customer/consultations/specialists");
+          if (res.ok) {
+            const data = await res.json();
+            setSpecialistsList(data.specialists || []);
+          } else {
+            toast.error("Failed to load specialists.");
+          }
+        } catch (err) {
+          console.error("Error fetching specialists:", err);
+          toast.error("Error loading specialists list.");
+        } finally {
+          setLoadingSpecialists(false);
+        }
+      };
+      fetchSpecialists();
+    }
+  }, [selectedConsultation]);
+
+  const handleAssignSpecialist = async (specialistId: string) => {
+    try {
+      setLoadingSpecialists(true);
+      const res = await apiFetch(`/api/customer/consultations/${selectedConsultation._id}/assign-specialist`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ specialistId })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(data.message || "Specialist assigned successfully!");
+        setSelectedConsultation(data.consultation);
+        setConsultations(prev => prev.map(c => c._id === data.consultation._id ? data.consultation : c));
+      } else {
+        const err = await res.json();
+        toast.error(err.message || "Failed to assign specialist.");
+      }
+    } catch (err) {
+      console.error("Error assigning specialist:", err);
+      toast.error("Error selecting specialist.");
+    } finally {
+      setLoadingSpecialists(false);
+    }
+  };
 
   const consultChatEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,7 +145,17 @@ export function ConsultationsTab({
       const res = await apiFetch("/api/customer/consultations");
       if (res.ok) {
         const data = await res.json();
-        setConsultations(data.consultations || []);
+        const list = data.consultations || [];
+        setConsultations(list);
+        
+        // Restore selected consultation from sessionStorage on mount/activeTab change
+        const savedId = typeof window !== "undefined" ? sessionStorage.getItem("farmer_selected_consultation_id") : null;
+        if (savedId && (!selectedConsultation || selectedConsultation._id !== savedId)) {
+          const matched = list.find((c: any) => c._id === savedId);
+          if (matched) {
+            setSelectedConsultation(matched);
+          }
+        }
       }
     } catch (err) {
       console.error("Error fetching consultations", err);
@@ -132,7 +204,7 @@ export function ConsultationsTab({
       const res = await apiFetch("/api/customer/consultations/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportId })
+        body: JSON.stringify({ reportId, consultationType, timeSlot })
       });
 
       if (!res.ok) {
@@ -150,7 +222,7 @@ export function ConsultationsTab({
         amount: orderData.order.amount,
         currency: orderData.order.currency,
         name: "AgriCare Specialist Consultation",
-        description: "Expert Agronomist Consultation Fee",
+        description: `Expert Agronomist ${consultationType === "VOICE_CALL" ? "Voice Call" : "Chat"} Consultation Fee`,
         order_id: orderData.order.id,
         handler: async function (response: any) {
           try {
@@ -161,7 +233,9 @@ export function ConsultationsTab({
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_signature: response.razorpay_signature,
-                reportId
+                reportId,
+                consultationType,
+                timeSlot
               })
             });
 
@@ -223,8 +297,10 @@ export function ConsultationsTab({
   );
 
   useEffect(() => {
-    fetchConsultations();
-  }, []);
+    if (isActive !== false) {
+      fetchConsultations();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (autoOpenBookingReportId) {
@@ -352,14 +428,57 @@ export function ConsultationsTab({
     }
   };
 
-  const triggerVoiceMessage = () => {
-    setIsVoiceRecording(true);
-    toast.info("Recording voice message...");
-    setTimeout(() => {
+  const triggerVoiceMessage = async () => {
+    if (!selectedConsultation) return;
+
+    if (isVoiceRecording && mediaRecorder) {
+      mediaRecorder.stop();
       setIsVoiceRecording(false);
-      setConsultMessage(language === "en" ? "🔊 Voice Query (0:12) — [Simulated Recording]" : "🔊 వాయిస్ ప్రశ్న (0:12) — [రికార్డింగ్ సిమ్యులేషన్]");
-      toast.success("Voice message recorded successfully!");
-    }, 3000);
+      toast.success(language === "en" ? "Audio message recorded successfully." : "వాయిస్ సందేశం విజయవంతంగా రికార్డ్ చేయబడింది.");
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        setMediaRecorder(recorder);
+
+        const chunks: Blob[] = [];
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          const audioBlob = new Blob(chunks, { type: "audio/webm" });
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = async () => {
+            const base64Audio = reader.result as string;
+            try {
+              const res = await apiFetch(`/api/customer/consultations/${selectedConsultation._id}/message`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: base64Audio })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                setSelectedConsultation((prev: any) => ({ ...prev, chatHistory: data.chatHistory }));
+                toast.success(language === "en" ? "Voice message sent!" : "వాయిస్ సందేశం పంపబడింది!");
+              }
+            } catch (err) {
+              toast.error(language === "en" ? "Failed to send voice message." : "వాయిస్ సందేశం పంపడం విఫలమైంది.");
+            }
+          };
+        };
+
+        recorder.start();
+        setIsVoiceRecording(true);
+        toast.info(language === "en" 
+          ? "Recording voice message... Click the mic button again to stop and send." 
+          : "వాయిస్ సందేశాన్ని రికార్డ్ చేస్తోంది... ఆపడానికి మరియు పంపడానికి మైక్ బటన్‌ను మళ్లీ క్లిక్ చేయండి."
+        );
+      } catch (err) {
+        toast.error(language === "en" ? "Microphone access denied or not supported." : "మైక్రోఫోన్ యాక్సెస్ నిరాకరించబడింది లేదా మద్దతు లేదు.");
+      }
+    }
   };
 
   const submitDetailedRating = async (e: React.FormEvent) => {
@@ -615,86 +734,113 @@ export function ConsultationsTab({
             {/* Left Column (col-span-2, Main Diagnosis Sheet Card containing tabbed navigation) */}
             <div className="lg:col-span-2 space-y-6">
               
-              {selectedConsultation.reportId && (
-                <div className="bg-card border border-border rounded-2xl p-6 shadow-soft space-y-6">
-                  
-                  {/* Title Header */}
-                  <div className="flex justify-between items-center border-b border-border pb-3.5">
-                    <div>
-                      <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-widest">Case File</span>
-                      <h2 className="text-lg font-extrabold text-foreground tracking-tight m-0 mt-0.5">
-                        {(selectedConsultation.reportId.cropName || "CROP").toUpperCase()} DIAGNOSIS SHEET
-                      </h2>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase border ${
-                      selectedConsultation.status === 'COMPLETED'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
-                        : 'bg-brand-soft text-brand border-brand/20'
-                    }`}>
-                      {selectedConsultation.status}
-                    </span>
+              {!selectedConsultation.specialistId ? (
+                <div className="bg-card border border-border rounded-2xl p-8 shadow-soft text-center space-y-5 py-16 animate-fadeIn">
+                  <div className="mx-auto w-16 h-16 rounded-full bg-brand/10 text-brand flex items-center justify-center text-3xl shadow-soft">
+                    🩺
                   </div>
-
-                  {/* RESPONSIVE TABS HEADER */}
-                  <div className="flex border-b border-border/60 overflow-x-auto no-scrollbar gap-1.5 pb-2.5">
-                    {[
-                      { id: "profile", label: "1. Farmer Profile" },
-                      { id: "questionnaire", label: "2. Crop Questionnaire" },
-                      { id: "gallery", label: "3. Leaf Image Gallery" },
-                      { id: "diagnosis", label: "4. Diagnosis & Prescriptions" }
-                    ].map((tabItem) => (
-                      <button
-                        key={tabItem.id}
-                        onClick={() => setActiveTab(tabItem.id as any)}
-                        className={`px-3 py-2 text-[11px] font-bold rounded-xl cursor-pointer transition-all border-0 flex-shrink-0 ${
-                          activeTab === tabItem.id
-                            ? "bg-brand text-brand-foreground shadow-soft"
-                            : "bg-muted/10 text-muted-foreground hover:bg-muted/30"
-                        }`}
-                      >
-                        {tabItem.label}
-                      </button>
-                    ))}
+                  <div className="space-y-2 max-w-md mx-auto">
+                    <h3 className="font-extrabold text-base text-foreground tracking-tight m-0">
+                      Select Specialist to Begin
+                    </h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed m-0">
+                      Your consultation ticket has been created and payment has been successfully verified. Please select a certified specialist from the list on the right to start your diagnosis case file and chat.
+                    </p>
                   </div>
-
-                  {/* TAB CONTENTS */}
-                  <div className="space-y-4">
+                </div>
+              ) : (
+                selectedConsultation.reportId && (
+                  <div className="bg-card border border-border rounded-2xl p-6 shadow-soft space-y-6">
                     
-                    {/* Tab 1: Farmer Profile */}
-                    {activeTab === "profile" && (
-                      <div className="space-y-4 animate-fadeIn">
-                        <div className="flex items-center gap-1.5 border-b border-border/40 pb-1">
-                          <UserIcon className="h-4.5 w-4.5 text-brand" />
-                          <span className="font-extrabold text-xs text-foreground">Farmer Profile Information</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Farmer Name</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.name}</p>
-                          </div>
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Mobile Number</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.mobile || "9515694155"}</p>
-                          </div>
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">District / State</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.district || "Pune, Maharashtra"}</p>
-                          </div>
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Village</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.village || "Wadgaon"}</p>
-                          </div>
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Farm Size</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.farmSize || "12 Acres"}</p>
-                          </div>
-                          <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Soil Texture</p>
-                            <p className="font-bold text-foreground mt-0.5">{userAny.soilTexture || "Clay Black"}</p>
-                          </div>
-                        </div>
+                    {/* Title Header */}
+                    <div className="flex justify-between items-center border-b border-border pb-3.5">
+                      <div>
+                        <span className="text-[10px] font-extrabold text-muted-foreground uppercase tracking-widest">Case File</span>
+                        <h2 className="text-lg font-extrabold text-foreground tracking-tight m-0 mt-0.5">
+                          {(selectedConsultation.reportId.cropName || "CROP").toUpperCase()} DIAGNOSIS SHEET
+                        </h2>
                       </div>
-                    )}
+                      <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold uppercase border ${
+                        selectedConsultation.status === 'COMPLETED'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
+                          : 'bg-brand-soft text-brand border-brand/20'
+                      }`}>
+                        {selectedConsultation.status}
+                      </span>
+                    </div>
+
+                    {/* RESPONSIVE TABS HEADER */}
+                    <div className="flex border-b border-border/60 overflow-x-auto no-scrollbar gap-1.5 pb-2.5">
+                      {[
+                        { id: "profile", label: "1. Farmer Profile" },
+                        { id: "questionnaire", label: "2. Crop Questionnaire" },
+                        { id: "gallery", label: "3. Leaf Image Gallery" },
+                        { id: "diagnosis", label: "4. Diagnosis & Prescriptions" }
+                      ].map((tabItem) => (
+                        <button
+                          key={tabItem.id}
+                          onClick={() => setActiveTab(tabItem.id as any)}
+                          className={`px-3 py-2 text-[11px] font-bold rounded-xl cursor-pointer transition-all border-0 flex-shrink-0 ${
+                            activeTab === tabItem.id
+                              ? "bg-brand text-brand-foreground shadow-soft"
+                              : "bg-muted/10 text-muted-foreground hover:bg-muted/30"
+                          }`}
+                        >
+                          {tabItem.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* TAB CONTENTS */}
+                    <div className="space-y-4">
+                      
+                      {/* Tab 1: Farmer Profile */}
+                      {activeTab === "profile" && (
+                        <div className="space-y-4 animate-fadeIn">
+                          <div className="flex items-center gap-1.5 border-b border-border/40 pb-1">
+                            <UserIcon className="h-4.5 w-4.5 text-brand" />
+                            <span className="font-extrabold text-xs text-foreground">Farmer Profile Information</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Farmer Name</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.name}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Mobile Number</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.mobile || "9515694155"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">District / State</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.district || "Pune, Maharashtra"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Village</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.village || "Wadgaon"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Farm Size</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.farmSize || "12 Acres"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Soil Texture</p>
+                              <p className="font-bold text-foreground mt-0.5">{userAny.soilTexture || "Clay Black"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Consultation Type</p>
+                              <p className="font-bold text-brand mt-0.5">{selectedConsultation.consultationType === "VOICE_CALL" ? "📞 Voice Call" : "💬 Chat"}</p>
+                            </div>
+                            <div className="p-3 bg-muted/10 border border-border/50 rounded-xl">
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">Booked Time Slot</p>
+                              <p className="font-bold text-brand mt-0.5">
+                                {selectedConsultation.timeSlot && !isNaN(Date.parse(selectedConsultation.timeSlot)) 
+                                  ? new Date(selectedConsultation.timeSlot).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) 
+                                  : selectedConsultation.timeSlot || "Not Scheduled"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                     {/* Tab 2: Crop Information & Symptoms Questionnaire */}
                     {activeTab === "questionnaire" && (
@@ -1083,315 +1229,437 @@ export function ConsultationsTab({
                   </div>
 
                 </div>
-              )}
+              )
+            )}
 
             </div>
 
-            {/* Right Column (col-span-1 on desktop, narrow Specialist Info + Follow-up details) */}
+            {/* Right Column (col-span-1 on desktop, narrow Specialist Info + Follow-up details OR Specialist Selection) */}
             <div className="space-y-6">
-              
-              {/* Specialist Details card */}
-              <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
-                <div className="flex justify-between items-start border-b border-border pb-3">
-                  <div>
-                    <h4 className="font-extrabold text-sm text-foreground m-0">
-                      {getSpecialistName(selectedConsultation.specialistId?.name)}
+              {!selectedConsultation.specialistId ? (
+                <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
+                  <div className="border-b border-border pb-3">
+                    <h4 className="font-extrabold text-sm text-foreground m-0 flex items-center gap-1.5">
+                      🩺 Select Specialist
                     </h4>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {selectedConsultation.specialistId?.specialization || "Crop Protection"}
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-normal m-0">
+                      Select a certified agronomist specialist. Specialists from other regions are prioritized to ensure unbiased and broad diagnosis advice.
                     </p>
                   </div>
-                  {selectedConsultation.status !== 'COMPLETED' && (
-                    <span className="flex h-2.5 w-2.5 rounded-full bg-success animate-pulse shrink-0" title="Online" />
+
+                  {loadingSpecialists ? (
+                    <div className="py-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin text-brand" />
+                      <span>Loading specialists...</span>
+                    </div>
+                  ) : specialistsList.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6 italic m-0">No active specialists available at the moment.</p>
+                  ) : (
+                    <div className="space-y-3.5 max-h-[460px] overflow-y-auto pr-1 no-scrollbar">
+                      {specialistsList.map((specialist) => {
+                        const isOtherRegion = specialist.workingRegion !== user?.workingRegion;
+                        const isBusy = specialist.isBusy;
+                        
+                        let busyTime = "";
+                        if (specialist.busyUntil) {
+                          try {
+                            const d = new Date(specialist.busyUntil);
+                            if (!isNaN(d.getTime())) {
+                              busyTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            }
+                          } catch (e) {}
+                        }
+
+                        return (
+                          <div
+                            key={specialist._id}
+                            className={`p-3.5 border rounded-xl bg-muted/5 transition-all text-xs text-left relative space-y-2 flex flex-col justify-between ${
+                              isBusy ? "border-border/40 opacity-75 animate-pulse" : "border-border/85 hover:bg-muted/15"
+                            }`}
+                          >
+                            {/* Region Priority Badge */}
+                            {isOtherRegion && (
+                              <span className="absolute top-2.5 right-2.5 text-[8px] bg-brand-soft text-brand font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                Other Place
+                              </span>
+                            )}
+                            <div>
+                              <div className="font-extrabold text-foreground pr-16">{specialist.name}</div>
+                              <div className="flex items-center gap-1.5 mt-1 select-none">
+                                <span className="text-[10px] text-brand font-semibold">{specialist.specialization || "Crop Protection"}</span>
+                                <span className={`h-1.5 w-1.5 rounded-full ${isBusy ? "bg-red-500 animate-ping" : "bg-emerald-500"}`} />
+                                <span className={`text-[9px] font-bold ${isBusy ? "text-red-500" : "text-emerald-600"}`}>
+                                  {isBusy ? (busyTime ? `Busy (Until ${busyTime})` : "Busy") : "Available"}
+                                </span>
+                              </div>
+                              
+                              <div className="mt-2 text-[10px] text-muted-foreground space-y-1">
+                                <div className="flex justify-between">
+                                  <span>Exp:</span>
+                                  <span className="font-bold text-foreground">{specialist.experienceYears || 3}+ Years</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Region:</span>
+                                  <span className="font-bold text-foreground">{specialist.workingRegion || "General"}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Languages:</span>
+                                  <span className="font-bold text-foreground">{(specialist.languages || []).join(", ") || specialist.preferredLanguage || "English"}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span>Rating:</span>
+                                  <span className="font-bold text-yellow-600 flex items-center gap-0.5">★ {specialist.rating || 5.0}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => !isBusy && handleAssignSpecialist(specialist._id)}
+                              disabled={isBusy}
+                              className={`w-full mt-2 font-bold text-[10px] py-1.5 rounded-lg border-0 transition-colors shadow-soft ${
+                                isBusy 
+                                  ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60" 
+                                  : "bg-brand text-brand-foreground hover:bg-brand/90 cursor-pointer"
+                              }`}
+                            >
+                              {isBusy ? "Busy (In Consultation)" : "Select Specialist"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                
-                <div className="text-xs space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground font-semibold">Rating</span>
-                    <span className="font-bold text-foreground">★ {selectedConsultation.specialistId?.rating || 5.0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground font-semibold">Mobile Contact</span>
-                    <span className="font-bold text-foreground">{selectedConsultation.specialistId?.mobile || "+91 99999 99999"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground font-semibold">Booking Date</span>
-                    <span className="font-bold text-foreground">
-                      {selectedConsultation.createdAt && !isNaN(Date.parse(selectedConsultation.createdAt)) 
-                        ? new Date(selectedConsultation.createdAt).toLocaleString() 
-                        : new Date().toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Follow-up & Checkups Card */}
-              <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
-                <div className="flex justify-between items-center border-b border-border pb-2.5">
-                  <h4 className="font-extrabold text-[10px] text-muted-foreground uppercase tracking-wider m-0">
-                    Follow-up & Checkups
-                  </h4>
-                  {(() => {
-                    const status = selectedConsultation.followUp?.status;
-                    if (status === "SCHEDULED") {
-                      return (
-                        <span className="px-2 py-0.5 bg-brand/10 text-brand text-[8px] font-bold uppercase rounded">
-                          Active
-                        </span>
-                      );
-                    } else if (status === "COMPLETED") {
-                      return (
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[8px] font-bold uppercase rounded">
-                          Completed
-                        </span>
-                      );
-                    } else {
-                      return (
-                        <span className="px-2 py-0.5 bg-muted text-muted-foreground text-[8px] font-bold uppercase rounded">
-                          Not Scheduled
-                        </span>
-                      );
-                    }
-                  })()}
-                </div>
-                
-                {selectedConsultation.followUp && 
-                (selectedConsultation.followUp.status === "SCHEDULED" || selectedConsultation.followUp.status === "COMPLETED") ? (
-                  <div className="text-xs space-y-2.5 leading-relaxed text-left">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-brand shrink-0" />
+              ) : (
+                <>
+                  {/* Specialist Details card */}
+                  <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
+                    <div className="flex justify-between items-start border-b border-border pb-3">
                       <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider m-0">Scheduled Follow-up Date</p>
-                        <p className="font-extrabold text-foreground m-0 mt-0.5">
-                          {selectedConsultation.followUp.scheduledDate
-                            ? new Date(selectedConsultation.followUp.scheduledDate).toLocaleDateString([], { 
-                                weekday: 'long', 
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric' 
-                              })
-                            : "Not set"}
+                        <h4 className="font-extrabold text-sm text-foreground m-0">
+                          {getSpecialistName(selectedConsultation.specialistId?.name)}
+                        </h4>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {selectedConsultation.specialistId?.specialization || "Crop Protection"}
                         </p>
                       </div>
+                      {selectedConsultation.status !== 'COMPLETED' && (
+                        <span className="flex h-2.5 w-2.5 rounded-full bg-success animate-pulse shrink-0" title="Online" />
+                      )}
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-brand shrink-0" />
-                      <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider m-0">Reminder Note</p>
-                        <p className="text-muted-foreground m-0 mt-0.5 italic">
-                          {selectedConsultation.followUp.reminderNote || "No notes provided"}
-                        </p>
+                    
+                    <div className="text-xs space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground font-semibold">Rating</span>
+                        <span className="font-bold text-foreground">★ {selectedConsultation.specialistId?.rating || 5.0}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground font-semibold">Mobile Contact</span>
+                        <span className="font-bold text-foreground">{selectedConsultation.specialistId?.mobile || "+91 99999 99999"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground font-semibold">Booking Date</span>
+                        <span className="font-bold text-foreground">
+                          {selectedConsultation.createdAt && !isNaN(Date.parse(selectedConsultation.createdAt)) 
+                            ? new Date(selectedConsultation.createdAt).toLocaleString() 
+                            : new Date().toLocaleString()}
+                        </span>
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground text-center py-4 italic">
-                    No follow-up checkup has been scheduled yet.
-                  </div>
-                )}
-              </div>
 
+                  {/* Follow-up & Checkups Card */}
+                  <div className="bg-card border border-border rounded-2xl p-5 shadow-soft space-y-4">
+                    <div className="flex justify-between items-center border-b border-border pb-2.5">
+                      <h4 className="font-extrabold text-[10px] text-muted-foreground uppercase tracking-wider m-0">
+                        Follow-up & Checkups
+                      </h4>
+                      {(() => {
+                        const status = selectedConsultation.followUp?.status;
+                        if (status === "SCHEDULED") {
+                          return (
+                            <span className="px-2 py-0.5 bg-brand/10 text-brand text-[8px] font-bold uppercase rounded">
+                              Active
+                            </span>
+                          );
+                        } else if (status === "COMPLETED") {
+                          return (
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[8px] font-bold uppercase rounded">
+                              Completed
+                            </span>
+                          );
+                        } else {
+                          return (
+                            <span className="px-2 py-0.5 bg-muted text-muted-foreground text-[8px] font-bold uppercase rounded">
+                              Not Scheduled
+                            </span>
+                          );
+                        }
+                      })()}
+                    </div>
+                    
+                    {selectedConsultation.followUp && 
+                    (selectedConsultation.followUp.status === "SCHEDULED" || selectedConsultation.followUp.status === "COMPLETED") ? (
+                      <div className="text-xs space-y-2.5 leading-relaxed text-left">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-brand shrink-0" />
+                          <div>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider m-0">Scheduled Follow-up Date</p>
+                            <p className="font-extrabold text-foreground m-0 mt-0.5">
+                              {selectedConsultation.followUp.scheduledDate
+                                ? new Date(selectedConsultation.followUp.scheduledDate).toLocaleDateString([], { 
+                                    weekday: 'long', 
+                                    year: 'numeric', 
+                                    month: 'long', 
+                                    day: 'numeric' 
+                                  })
+                                : "Not set"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-brand shrink-0" />
+                          <div>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider m-0">Reminder Note</p>
+                            <p className="text-muted-foreground m-0 mt-0.5 italic">
+                              {selectedConsultation.followUp.reminderNote || "No notes provided"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground text-center py-4 italic">
+                        No follow-up checkup has been scheduled yet.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
           </div>
 
           {/* FLOATING CHAT BUBBLE TRIGGER */}
-          <div className="fixed bottom-6 right-6 z-40">
-            <button
-              onClick={() => setShowFloatingChat(!showFloatingChat)}
-              className="h-14 w-14 rounded-full bg-brand text-brand-foreground flex items-center justify-center shadow-lg hover:scale-105 duration-200 cursor-pointer border-0 relative"
-              title="Open Specialist Chat"
-            >
-              {showFloatingChat ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
-              {selectedConsultation.status !== 'COMPLETED' && (
-                <span className="absolute top-0 right-0 block h-3 w-3 rounded-full bg-success ring-2 ring-white animate-pulse" />
-              )}
-            </button>
-          </div>
-
-          {/* FLOATING CHAT BOX WIDGET POPUP OVERLAY */}
-          {showFloatingChat && (
-            <div className="fixed bottom-24 right-6 w-96 max-w-[calc(100vw-2rem)] h-[480px] bg-card border border-border rounded-2xl shadow-lift z-50 flex flex-col overflow-hidden transition-all duration-200 animate-slideUp">
-              {/* Chat Header */}
-              <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/10 shrink-0">
-                <div className="text-left flex items-center gap-2">
-                  <div className="relative">
-                    <MessageSquare className="h-4 w-4 text-brand" />
-                    <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-                  </div>
-                  <div>
-                    <h3 className="font-extrabold text-[11px] text-foreground m-0">
-                      {getSpecialistName(selectedConsultation.specialistId?.name)}
-                    </h3>
-                    <p className="text-[8px] text-muted-foreground m-0 mt-0.5">Replies instantly</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2.5">
+          {selectedConsultation.specialistId && (
+            <>
+              <div className="fixed bottom-6 right-6 z-40">
+                <button
+                  onClick={() => setShowFloatingChat(!showFloatingChat)}
+                  className="h-14 w-14 rounded-full bg-brand text-brand-foreground flex items-center justify-center shadow-lg hover:scale-105 duration-200 cursor-pointer border-0 relative"
+                  title="Open Specialist Chat"
+                >
+                  {showFloatingChat ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6" />}
                   {selectedConsultation.status !== 'COMPLETED' && (
-                    <button
-                      onClick={() => {
-                        setRatingTargetConsultation(selectedConsultation);
-                        setIsRatingModalOpen(true);
-                      }}
-                      className="text-[9px] font-bold text-brand hover:underline cursor-pointer border-0 bg-transparent"
-                    >
-                      Resolve
-                    </button>
+                    <span className="absolute top-0 right-0 block h-3 w-3 rounded-full bg-success ring-2 ring-white animate-pulse" />
                   )}
-                  <button 
-                    onClick={() => setShowFloatingChat(false)} 
-                    className="p-1 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer"
-                  >
-                    <X className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                </div>
+                </button>
               </div>
 
-              {/* Chat History Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/5">
-                <div className="text-center py-1">
-                  <span className="bg-muted px-2.5 py-0.5 rounded-full text-[8px] text-muted-foreground font-semibold uppercase tracking-wider">
-                    SECURE SYSTEM CHAT
-                  </span>
-                </div>
+              {/* FLOATING CHAT BOX WIDGET POPUP OVERLAY */}
+              <div 
+                className={`fixed bottom-24 right-6 w-96 max-w-[calc(100vw-2rem)] h-[480px] bg-card border border-border rounded-2xl shadow-lift z-50 flex flex-col overflow-hidden transition-all duration-200 ${
+                  showFloatingChat ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none translate-y-4"
+                }`}
+              >
+                {/* Chat Header */}
+                <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/10 shrink-0">
+                  <div className="text-left flex items-center gap-2">
+                    <div className="relative">
+                      <MessageSquare className="h-4 w-4 text-brand" />
+                      <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-[11px] text-foreground m-0">
+                        {getSpecialistName(selectedConsultation.specialistId?.name)}
+                      </h3>
+                      <p className="text-[8px] text-muted-foreground m-0 mt-0.5">Replies instantly</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2.5">
+                    {selectedConsultation.status !== 'COMPLETED' && (
+                      <VoiceCallOverlay
+                        socket={socket}
+                        userId={user.id}
+                        userName={user.name}
+                        consultationId={selectedConsultation._id}
+                        recipientId={selectedConsultation.specialistId?._id || selectedConsultation.specialistId}
+                        recipientName={selectedConsultation.specialistId?.name || "Specialist"}
+                        consultationType={selectedConsultation.consultationType}
+                        onIncomingCall={() => setShowFloatingChat(true)}
+                      />
+                    )}
+                    {selectedConsultation.status !== 'COMPLETED' && (
+                      <button
+                        onClick={() => {
+                          setRatingTargetConsultation(selectedConsultation);
+                          setIsRatingModalOpen(true);
+                        }}
+                        className="text-[9px] font-bold text-brand hover:underline cursor-pointer border-0 bg-transparent shrink-0"
+                      >
+                        Resolve
+                      </button>
+                    )}
+                      <button 
+                        onClick={() => setShowFloatingChat(false)} 
+                        className="p-1 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer shrink-0"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                  </div>
 
-                {selectedConsultation.chatHistory?.map((msg: any, i: number) => {
-                  const isMe = msg.senderId?._id === user.id || msg.senderId === user.id || (msg.senderId?.role === 'CUSTOMER');
-                  return (
-                    <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[11px] space-y-1 text-left shadow-soft ${
-                        isMe ? "bg-brand text-brand-foreground font-semibold" : "bg-card border border-border text-foreground"
-                      }`}>
-                        {msg.message?.startsWith("data:image/") ? (
-                          <img
-                            src={msg.message}
-                            alt="Shared leaf"
-                            className="max-w-[160px] max-h-[160px] rounded-xl object-cover mt-0.5 border cursor-pointer hover:opacity-90"
-                            onClick={() => {
-                              const w = window.open();
-                              if (w) w.document.write(`<img src="${msg.message}" style="max-width:100%; max-height:100vh; display:block; margin:auto;" />`);
-                            }}
-                          />
-                        ) : (
-                          <p className="leading-relaxed m-0">{msg.message}</p>
-                        )}
-                        <div className="flex items-center justify-end gap-1 mt-1 shrink-0">
-                          <p className={`text-[7px] m-0 ${isMe ? "text-brand-foreground/75" : "text-muted-foreground"}`}>
-                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                          {isMe && (
-                            <span className="text-[8px] text-brand-foreground/80 font-bold">✓✓</span>
-                          )}
+                  {/* Chat History Messages */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/5">
+                    <div className="text-center py-1">
+                      <span className="bg-muted px-2.5 py-0.5 rounded-full text-[8px] text-muted-foreground font-semibold uppercase tracking-wider">
+                        SECURE SYSTEM CHAT
+                      </span>
+                    </div>
+
+                    {selectedConsultation.chatHistory?.map((msg: any, i: number) => {
+                      const isMe = msg.senderId?._id === user.id || msg.senderId === user.id || (msg.senderId?.role === 'CUSTOMER');
+                      return (
+                        <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[11px] space-y-1 text-left shadow-soft ${
+                            isMe ? "bg-brand text-brand-foreground font-semibold" : "bg-card border border-border text-foreground"
+                          }`}>
+                            {msg.message?.startsWith("data:image/") ? (
+                              <img
+                                src={msg.message}
+                                alt="Shared leaf"
+                                className="max-w-[160px] max-h-[160px] rounded-xl object-cover mt-0.5 border cursor-pointer hover:opacity-90"
+                                onClick={() => {
+                                  const w = window.open();
+                                  if (w) w.document.write(`<img src="${msg.message}" style="max-width:100%; max-height:100vh; display:block; margin:auto;" />`);
+                                }}
+                              />
+                            ) : msg.message?.startsWith("data:audio/") ? (
+                              <audio 
+                                controls 
+                                src={msg.message} 
+                                className="max-w-[200px] mt-1 accent-brand block outline-none text-foreground bg-transparent"
+                              />
+                            ) : (
+                              <p className="leading-relaxed m-0">{msg.message}</p>
+                            )}
+                            <div className="flex items-center justify-end gap-1 mt-1 shrink-0">
+                              <p className={`text-[7px] m-0 ${isMe ? "text-brand-foreground/75" : "text-muted-foreground"}`}>
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                              {isMe && (
+                                <span className="text-[8px] text-brand-foreground/80 font-bold">✓✓</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {isSpecialistTyping && (
+                      <div className="flex justify-start">
+                        <div className="bg-card border border-border px-3 py-2 rounded-2xl text-[10px] text-muted-foreground flex items-center gap-1 shadow-soft">
+                          <span className="h-1 w-1 rounded-full bg-brand animate-bounce" />
+                          <span className="h-1 w-1 rounded-full bg-brand animate-bounce [animation-delay:0.2s]" />
+                          <span className="h-1 w-1 rounded-full bg-brand animate-bounce [animation-delay:0.4s]" />
+                          <span className="text-[9px] font-semibold">Specialist typing...</span>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-
-                {isSpecialistTyping && (
-                  <div className="flex justify-start">
-                    <div className="bg-card border border-border px-3 py-2 rounded-2xl text-[10px] text-muted-foreground flex items-center gap-1 shadow-soft">
-                      <span className="h-1 w-1 rounded-full bg-brand animate-bounce" />
-                      <span className="h-1 w-1 rounded-full bg-brand animate-bounce [animation-delay:0.2s]" />
-                      <span className="h-1 w-1 rounded-full bg-brand animate-bounce [animation-delay:0.4s]" />
-                      <span className="text-[9px] font-semibold">Specialist typing...</span>
-                    </div>
+                    )}
+                    <div ref={consultChatEndRef} />
                   </div>
-                )}
-                <div ref={consultChatEndRef} />
-              </div>
 
-              {/* Quick Replies inside floating chat widget */}
-              {selectedConsultation.status !== 'COMPLETED' && (
-                <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 bg-muted/10 border-t border-border no-scrollbar shrink-0">
-                  {[
-                    translations[language].quickReply1,
-                    translations[language].quickReply2,
-                    translations[language].quickReply3,
-                    translations[language].quickReply4
-                  ].map((qr, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setConsultMessage(qr)}
-                      className="px-2.5 py-0.5 rounded-full border border-border text-[8px] font-bold text-muted-foreground hover:border-brand hover:text-brand bg-card flex-shrink-0 cursor-pointer"
-                    >
-                      {qr}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  {/* Quick Replies inside floating chat widget */}
+                  {selectedConsultation.status !== 'COMPLETED' && (
+                    <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 bg-muted/10 border-t border-border no-scrollbar shrink-0">
+                      {[
+                        translations[language].quickReply1,
+                        translations[language].quickReply2,
+                        translations[language].quickReply3,
+                        translations[language].quickReply4
+                      ].map((qr, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setConsultMessage(qr)}
+                          className="px-2.5 py-0.5 rounded-full border border-border text-[8px] font-bold text-muted-foreground hover:border-brand hover:text-brand bg-card flex-shrink-0 cursor-pointer"
+                        >
+                          {qr}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-              {/* Chat Input Bar */}
-              {selectedConsultation.status !== 'COMPLETED' ? (
-                <form onSubmit={handleSendConsultMessage} className="p-2.5 border-t border-border flex gap-1.5 items-center bg-card shrink-0">
-                  <button
-                    type="button"
-                    onClick={triggerVoiceMessage}
-                    className={`p-2 rounded-lg border border-border cursor-pointer ${isVoiceRecording ? "bg-red-50 text-red-600 animate-pulse border-red-200" : "bg-card text-muted-foreground hover:text-brand"}`}
-                    title="Record Voice Note"
-                  >
-                    <Mic className="h-3.5 w-3.5" />
-                  </button>
-                  
-                  <label className="p-2 rounded-lg border border-border bg-card text-muted-foreground hover:text-brand cursor-pointer">
-                    <Camera className="h-3.5 w-3.5" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        try {
-                          const compressedFile = await compressImage(file);
-                          const reader = new FileReader();
-                          reader.onloadend = async () => {
-                            const base64Url = reader.result as string;
+                  {/* Chat Input Bar */}
+                  {selectedConsultation.status !== 'COMPLETED' ? (
+                    <form onSubmit={handleSendConsultMessage} className="p-2.5 border-t border-border flex gap-1.5 items-center bg-card shrink-0">
+                      <button
+                        type="button"
+                        onClick={triggerVoiceMessage}
+                        className={`p-2 rounded-lg border border-border cursor-pointer ${isVoiceRecording ? "bg-red-50 text-red-600 animate-pulse border-red-200" : "bg-card text-muted-foreground hover:text-brand"}`}
+                        title="Record Voice Note"
+                      >
+                        <Mic className="h-3.5 w-3.5" />
+                      </button>
+                      
+                      <label className="p-2 rounded-lg border border-border bg-card text-muted-foreground hover:text-brand cursor-pointer">
+                        <Camera className="h-3.5 w-3.5" />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
                             try {
-                              const res = await apiFetch(`/api/customer/consultations/${selectedConsultation._id}/message`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ message: base64Url })
-                              });
-                              if (res.ok) {
-                                const data = await res.json();
-                                setSelectedConsultation((prev: any) => ({ ...prev, chatHistory: data.chatHistory }));
-                                toast.success("Image uploaded successfully.");
-                              }
+                              const compressedFile = await compressImage(file);
+                              const reader = new FileReader();
+                              reader.onloadend = async () => {
+                                const base64Url = reader.result as string;
+                                try {
+                                  const res = await apiFetch(`/api/customer/consultations/${selectedConsultation._id}/message`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ message: base64Url })
+                                  });
+                                  if (res.ok) {
+                                    const data = await res.json();
+                                    setSelectedConsultation((prev: any) => ({ ...prev, chatHistory: data.chatHistory }));
+                                    toast.success("Image uploaded successfully.");
+                                  }
+                                } catch (err) {
+                                  toast.error("Failed to upload image.");
+                                }
+                              };
+                              reader.readAsDataURL(compressedFile);
                             } catch (err) {
-                              toast.error("Failed to upload image.");
+                              console.error("Compression error:", err);
+                              toast.error("Failed to process image.");
                             }
-                          };
-                          reader.readAsDataURL(compressedFile);
-                        } catch (err) {
-                          console.error("Compression error:", err);
-                          toast.error("Failed to process image.");
-                        }
-                      }}
-                    />
-                  </label>
+                          }}
+                        />
+                      </label>
 
-                  <input
-                    type="text"
-                    placeholder={translations[language].inputPlaceholder}
-                    value={consultMessage}
-                    onChange={(e) => setConsultMessage(e.target.value)}
-                    className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-brand"
-                  />
-                  
-                  <button type="submit" className="p-2 bg-brand text-brand-foreground rounded-lg border-0 cursor-pointer hover:bg-brand/90 flex items-center justify-center">
-                    <Send className="h-3.5 w-3.5" />
-                  </button>
-                </form>
-              ) : (
-                <div className="p-3 bg-muted/20 border-t border-border text-center text-[10px] font-semibold text-muted-foreground shrink-0">
-                  Consultation ticket closed.
+                      <input
+                        type="text"
+                        placeholder={translations[language].inputPlaceholder}
+                        value={consultMessage}
+                        onChange={(e) => setConsultMessage(e.target.value)}
+                        className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-brand"
+                      />
+                      
+                      <button type="submit" className="p-2 bg-brand text-brand-foreground rounded-lg border-0 cursor-pointer hover:bg-brand/90 flex items-center justify-center">
+                        <Send className="h-3.5 w-3.5" />
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="p-3 bg-muted/20 border-t border-border text-center text-[10px] font-semibold text-muted-foreground shrink-0">
+                      Consultation ticket closed.
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
           )}
 
         </div>
@@ -1472,7 +1740,7 @@ export function ConsultationsTab({
             
             <div className="space-y-4">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Connect with a certified Agronomist expert for personalized organic and chemical treatment advice. The consultation fee is <span className="font-bold text-foreground">₹499</span>.
+                Connect with a certified Agronomist expert for personalized organic and chemical treatment advice. Choose your communication preference below.
               </p>
 
               {unconsultedReports.length === 0 ? (
@@ -1482,20 +1750,74 @@ export function ConsultationsTab({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <label className="text-[10px] font-bold text-muted-foreground block uppercase">Select Crop Scan Report</label>
-                  <select
-                    value={selectedReportId}
-                    onChange={(e) => setSelectedReportId(e.target.value)}
-                    className="w-full text-xs rounded-lg border border-border p-2 bg-background outline-none font-medium text-foreground"
-                  >
-                    <option value="">-- Choose a crop diagnosis report --</option>
-                    {unconsultedReports.map((report) => (
-                      <option key={report._id} value={report._id}>
-                        {report.cropName} - {report.aiPrediction?.disease || "Healthy"} ({new Date(report.createdAt).toLocaleDateString()})
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-4">
+                  {/* Select Report */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-muted-foreground block uppercase">Select Crop Scan Report</label>
+                    <select
+                      value={selectedReportId}
+                      onChange={(e) => setSelectedReportId(e.target.value)}
+                      className="w-full text-xs rounded-lg border border-border p-2 bg-background outline-none font-medium text-foreground"
+                    >
+                      <option value="">-- Choose a crop diagnosis report --</option>
+                      {unconsultedReports.map((report) => (
+                        <option key={report._id} value={report._id}>
+                          {report.cropName} - {report.aiPrediction?.disease || "Healthy"} ({new Date(report.createdAt).toLocaleDateString()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Consultation Type Selector */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-muted-foreground block uppercase">Consultation Type</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* Chat Option */}
+                      <div
+                        onClick={() => setConsultationType("CHAT")}
+                        className={`p-3 border rounded-xl cursor-pointer text-left transition-all ${
+                          consultationType === "CHAT"
+                            ? "bg-brand/5 border-brand ring-1 ring-brand"
+                            : "border-border hover:bg-muted/30"
+                        }`}
+                      >
+                        <p className="text-xs font-bold text-foreground flex items-center gap-1.5 m-0">
+                          💬 Chat
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-1 mb-0">Text & leaf images</p>
+                        <p className="text-xs font-black text-brand mt-2 mb-0">₹199</p>
+                      </div>
+
+                      {/* Voice Call Option */}
+                      <div
+                        onClick={() => setConsultationType("VOICE_CALL")}
+                        className={`p-3 border rounded-xl cursor-pointer text-left transition-all ${
+                          consultationType === "VOICE_CALL"
+                            ? "bg-brand/5 border-brand ring-1 ring-brand"
+                            : "border-border hover:bg-muted/30"
+                        }`}
+                      >
+                        <p className="text-xs font-bold text-foreground flex items-center gap-1.5 m-0">
+                          📞 Voice Call
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-1 mb-0">Voice call + Text, Chat & Images</p>
+                        <p className="text-xs font-black text-brand mt-2 mb-0">₹399</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Time Slot Selection */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-muted-foreground block uppercase">Select Date & Time Slot</label>
+                    <input
+                      type="datetime-local"
+                      value={timeSlot}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)} // only allow future times
+                      onChange={(e) => setTimeSlot(e.target.value)}
+                      className="w-full text-xs rounded-lg border border-border p-2 bg-background outline-none font-medium text-foreground cursor-pointer"
+                      required
+                    />
+                  </div>
                 </div>
               )}
 
@@ -1517,7 +1839,7 @@ export function ConsultationsTab({
                     onClick={() => handleRequestConsultation(selectedReportId)}
                     className="px-4 py-2 rounded-lg bg-brand text-brand-foreground text-xs font-bold hover:bg-brand/90 border-0 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                   >
-                    {isPaymentProcessing ? "Processing..." : "Pay ₹499 & Book"}
+                    {isPaymentProcessing ? "Processing..." : `Pay ₹${consultationType === "VOICE_CALL" ? "399" : "199"} & Book`}
                   </button>
                 )}
               </div>

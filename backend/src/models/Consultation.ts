@@ -17,6 +17,9 @@ export interface IConsultation extends Document {
   farmerId: Types.ObjectId;
   specialistId?: Types.ObjectId | null;
   status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'ESCALATED' | 'REJECTED';
+  consultationType: 'CHAT' | 'VOICE_CALL';
+  timeSlot?: string;
+  amount?: number;
   chatHistory: IMessage[];
   prescription?: IPrescription;
   rejectionReason?: string;
@@ -73,6 +76,13 @@ const consultationSchema = new Schema<IConsultation>(
       enum: ['PENDING', 'ACTIVE', 'COMPLETED', 'ESCALATED', 'REJECTED'],
       default: 'PENDING',
     },
+    consultationType: {
+      type: String,
+      enum: ['CHAT', 'VOICE_CALL'],
+      default: 'CHAT'
+    },
+    timeSlot: { type: String, default: '' },
+    amount: { type: Number },
     chatHistory: [messageSchema],
     prescription: prescriptionSchema,
     rejectionReason: { type: String },

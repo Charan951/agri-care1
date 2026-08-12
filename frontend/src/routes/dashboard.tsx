@@ -25,6 +25,8 @@ import { WeatherTab } from "@/components/dashboard/WeatherTab";
 import { WishlistTab } from "@/components/dashboard/WishlistTab";
 
 import { translations } from "@/components/dashboard/translations";
+import { useLanguage } from "@/context/LanguageContext";
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -52,12 +54,23 @@ type TabType =
 function CustomerDashboard() {
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const { language } = useLanguage();
 
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [language, setLanguage] = useState<"en" | "te">("en");
-  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      return (sessionStorage.getItem("farmer_active_tab") as TabType) || "overview";
+    }
+    return "overview";
+  });
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>(() => {
+    const initialTab = (typeof window !== "undefined" && sessionStorage.getItem("farmer_active_tab") as TabType) || "overview";
+    return { overview: true, [initialTab]: true };
+  });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("farmer_active_tab", activeTab);
+    }
     setVisitedTabs((prev) => {
       if (prev[activeTab]) return prev;
       return { ...prev, [activeTab]: true };
@@ -97,7 +110,7 @@ function CustomerDashboard() {
     if (isAuthenticated && user?.role === "FARMER") {
       fetchCartAndWishlistCount();
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, activeTab]);
 
   useEffect(() => {
     if (!socket) return;
@@ -137,6 +150,30 @@ function CustomerDashboard() {
   const [selectedConsultation, setSelectedConsultation] = useState<any>(null);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [autoOpenBookingReportId, setAutoOpenBookingReportId] = useState<string>("");
+
+  useEffect(() => {
+    if (selectedConsultation) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("farmer_selected_consultation_id", selectedConsultation._id);
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("farmer_selected_consultation_id");
+      }
+    }
+  }, [selectedConsultation]);
+
+  useEffect(() => {
+    if (selectedOrder) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("farmer_selected_order_id", selectedOrder._id);
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("farmer_selected_order_id");
+      }
+    }
+  }, [selectedOrder]);
 
   const setDetectState = (state: { cropName: string; imageUrl: string; detectWorkflowStep: any; scanResult: any }) => {
     setSelectedCrop(state.cropName);
@@ -182,7 +219,7 @@ function CustomerDashboard() {
       }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           <div className="space-y-6">
-            <div className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border pb-4">
+            <div className="flex items-center gap-2.5 px-3 py-1.5 border-b border-border pb-4 notranslate">
               <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-brand-foreground shadow-sm">
                 <Sparkles className="h-5 w-5" />
               </span>
@@ -328,18 +365,13 @@ function CustomerDashboard() {
           </div>
 
           {/* Brand Name in Middle */}
-          <div className="lg:hidden absolute left-1/2 -translate-x-1/2 font-black text-base tracking-tight text-brand">
+          <div className="lg:hidden absolute left-1/2 -translate-x-1/2 font-black text-base tracking-tight text-brand notranslate">
             AgriCare
           </div>
 
           <div className="flex items-center gap-4">
             {/* Language Selection */}
-            <button
-              onClick={() => setLanguage(prev => prev === "en" ? "te" : "en")}
-              className="flex items-center gap-1 text-xs font-bold border border-brand/20 bg-brand/5 text-brand px-3 py-1.5 rounded-full hover:bg-brand/10 transition-all cursor-pointer shadow-soft"
-            >
-              🌐 {translations[language].toggleLanguage}
-            </button>
+            <LanguageSelector />
 
             {/* Notification Bell */}
             <button className="relative p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-full border-0 bg-transparent cursor-pointer transition-colors">
@@ -398,6 +430,7 @@ function CustomerDashboard() {
                 onCartOrWishlistUpdate={fetchCartAndWishlistCount}
                 autoOpenBookingReportId={autoOpenBookingReportId}
                 setAutoOpenBookingReportId={setAutoOpenBookingReportId}
+                isActive={activeTab === "consultations"}
               />
             </div>
           )}
@@ -423,6 +456,7 @@ function CustomerDashboard() {
               <CartTab
                 setActiveTab={setActiveTab}
                 onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+                isActive={activeTab === "cart"}
               />
             </div>
           )}
@@ -432,13 +466,14 @@ function CustomerDashboard() {
               <OrdersTab
                 selectedOrder={selectedOrder}
                 setSelectedOrder={setSelectedOrder}
+                isActive={activeTab === "orders"}
               />
             </div>
           )}
 
           {visitedTabs.payments && (
             <div className={activeTab === "payments" ? "" : "hidden"}>
-              <PaymentsTab />
+              <PaymentsTab isActive={activeTab === "payments"} />
             </div>
           )}
 
@@ -450,6 +485,7 @@ function CustomerDashboard() {
                 setDetectState={setDetectState}
                 setSelectedConsultation={setSelectedConsultation}
                 setSelectedOrder={setSelectedOrder}
+                isActive={activeTab === "crop-history"}
               />
             </div>
           )}
@@ -464,6 +500,7 @@ function CustomerDashboard() {
             <div className={activeTab === "wishlist" ? "" : "hidden"}>
               <WishlistTab
                 onCartOrWishlistUpdate={fetchCartAndWishlistCount}
+                isActive={activeTab === "wishlist"}
               />
             </div>
           )}

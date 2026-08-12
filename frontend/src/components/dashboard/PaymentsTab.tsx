@@ -4,7 +4,11 @@ import { apiFetch } from "@/lib/api";
 import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
-export function PaymentsTab() {
+interface PaymentsTabProps {
+  isActive?: boolean;
+}
+
+export function PaymentsTab({ isActive }: PaymentsTabProps = {}) {
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,8 +30,10 @@ export function PaymentsTab() {
   const { socket } = useSocket();
 
   useEffect(() => {
-    fetchPayments();
-  }, []);
+    if (isActive !== false) {
+      fetchPayments();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (!socket) return;

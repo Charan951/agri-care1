@@ -14,12 +14,17 @@ import { Settlement } from '../models/Settlement';
 import { MerchantNotification } from '../models/MerchantNotification';
 import { CustomerNote } from '../models/CustomerNote';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/agricare';
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.error('Fatal Error: MONGODB_URI environment variable is not defined.');
+  process.exit(1);
+}
 
 async function seedDB() {
   try {
     console.log('Connecting to database for seeding...');
-    await mongoose.connect(MONGODB_URI);
+    await mongoose.connect(MONGODB_URI!);
     console.log('Connected to database.');
 
     // 1. Flush existing collections

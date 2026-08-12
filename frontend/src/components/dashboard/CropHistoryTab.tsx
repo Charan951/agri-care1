@@ -11,6 +11,7 @@ interface CropHistoryTabProps {
   setDetectState: (state: { cropName: string; imageUrl: string; detectWorkflowStep: any; scanResult: any }) => void;
   setSelectedConsultation: (consultation: any) => void;
   setSelectedOrder: (order: any) => void;
+  isActive?: boolean;
 }
 
 export function CropHistoryTab({
@@ -18,7 +19,8 @@ export function CropHistoryTab({
   setActiveTab,
   setDetectState,
   setSelectedConsultation,
-  setSelectedOrder
+  setSelectedOrder,
+  isActive
 }: CropHistoryTabProps) {
   const [scansHistory, setScansHistory] = useState<any[]>([]);
   const [consultations, setConsultations] = useState<any[]>([]);
@@ -65,8 +67,10 @@ export function CropHistoryTab({
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isActive !== false) {
+      loadData();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (!socket) return;

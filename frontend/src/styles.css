@@ -145,3 +145,30 @@
     display: none;
   }
 }
+
+/* Google Translate UI Overrides */
+iframe.goog-te-banner-frame, 
+.goog-te-banner-frame,
+.goog-te-banner,
+#goog-gt-tt,
+.goog-te-balloon-frame,
+#gtx-trans,
+.gtx-trans,
+#gtx-translation {
+  display: none !important;
+  visibility: hidden !important;
+}
+body {
+  top: 0px !important;
+}
+.goog-text-highlight {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+#google_translate_element {
+  display: none !important;
+}
+.skiptranslate {
+  display: none !important;
+}
+

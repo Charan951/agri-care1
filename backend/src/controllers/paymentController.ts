@@ -241,7 +241,7 @@ export const verifyCheckoutPayment = async (req: AuthenticatedRequest, res: Resp
 
 export const createConsultationPaymentOrder = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
-    const { reportId } = req.body;
+    const { reportId, consultationType } = req.body;
     if (!reportId) {
       res.status(400).json({ message: 'Disease report ID is required' });
       return;
@@ -253,7 +253,7 @@ export const createConsultationPaymentOrder = async (req: AuthenticatedRequest, 
       return;
     }
 
-    const consultationFee = 499;
+    const consultationFee = consultationType === 'VOICE_CALL' ? 399 : 199;
 
     const options = {
       amount: Math.round(consultationFee * 100),
@@ -283,7 +283,9 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
       razorpay_payment_id,
       razorpay_order_id,
       razorpay_signature,
-      reportId
+      reportId,
+      consultationType,
+      timeSlot
     } = req.body;
 
     const farmerId = req.user?._id;
@@ -306,15 +308,20 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
       return;
     }
 
+    const amount = consultationType === 'VOICE_CALL' ? 399 : 199;
+
     const consultation = new Consultation({
       reportId,
       farmerId,
       specialistId: null,
       status: 'PENDING',
+      consultationType: consultationType || 'CHAT',
+      timeSlot: timeSlot || '',
+      amount,
       chatHistory: [
         {
           senderId: farmerId,
-          message: `Consultation request initiated. Payment transaction ${razorpay_payment_id} succeeded. Waiting for Admin assignment.`,
+          message: `Consultation request (${consultationType === 'VOICE_CALL' ? 'Voice Call' : 'Chat'}) initiated. Time Slot: ${timeSlot || 'Instant'}. Payment successful. Please select an Agronomist Specialist below to begin.`,
           timestamp: new Date()
         }
       ]
@@ -325,7 +332,7 @@ export const verifyConsultationPayment = async (req: AuthenticatedRequest, res: 
     const payment = new Payment({
       orderId: reportId,
       transactionId: razorpay_payment_id,
-      amount: 499,
+      amount,
       status: 'SUCCESSFUL',
       paymentMethod: 'Razorpay API',
       merchantSettled: false

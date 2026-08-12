@@ -22,9 +22,10 @@ const loadRazorpayScript = () => {
 interface CartTabProps {
   setActiveTab: (tab: any) => void;
   onCartOrWishlistUpdate?: () => void;
+  isActive?: boolean;
 }
 
-export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) {
+export function CartTab({ setActiveTab, onCartOrWishlistUpdate, isActive }: CartTabProps) {
   const { user } = useAuth();
 
   const [cart, setCart] = useState<any[]>([]);
@@ -63,8 +64,10 @@ export function CartTab({ setActiveTab, onCartOrWishlistUpdate }: CartTabProps) 
   const { socket } = useSocket();
 
   useEffect(() => {
-    fetchCartAndProfile();
-  }, []);
+    if (isActive !== false) {
+      fetchCartAndProfile();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (!socket) return;

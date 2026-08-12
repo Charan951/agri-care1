@@ -34,7 +34,9 @@ import {
   getConsultationDetails,
   sendConsultationMessage,
   sendMockSpecialistMessage,
-  rateSpecialist
+  rateSpecialist,
+  getSpecialistsForFarmer,
+  assignSpecialistToConsultation
 } from '../controllers/consultationController';
 import {
   getProducts,
@@ -106,9 +108,11 @@ router.get('/disease-detection/history', getDetectionHistory);
 
 // Consultations
 router.get('/consultations', getFarmerConsultations);
+router.get('/consultations/specialists', getSpecialistsForFarmer);
 router.post('/consultations', requestConsultation);
 router.post('/consultations/create-order', createConsultationPaymentOrder);
 router.post('/consultations/verify', verifyConsultationPayment);
+router.put('/consultations/:id/assign-specialist', assignSpecialistToConsultation);
 router.get('/consultations/:id', getConsultationDetails);
 router.post('/consultations/:id/message', sendConsultationMessage);
 router.post('/consultations/:id/message/mock-specialist', sendMockSpecialistMessage);

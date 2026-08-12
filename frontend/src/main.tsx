@@ -1,10 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { routeTree } from './routeTree.gen';
 import './styles.css';
 import { AuthProvider } from './hooks/useAuth';
 import { SocketProvider } from './context/SocketContext';
+import { LanguageProvider } from './context/LanguageContext';
 
 import { getApiUrl } from './lib/api';
 
@@ -43,12 +45,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <SocketProvider>
-        <RouterProvider router={router} />
-      </SocketProvider>
-    </AuthProvider>
+    <GoogleOAuthProvider clientId={googleClientId}>
+      <AuthProvider>
+        <SocketProvider>
+          <LanguageProvider>
+            <RouterProvider router={router} />
+          </LanguageProvider>
+        </SocketProvider>
+      </AuthProvider>
+    </GoogleOAuthProvider>
   </StrictMode>
 );

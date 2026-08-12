@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
+import { useSocket } from "@/context/SocketContext";
+import { VoiceCallOverlay } from "../dashboard/VoiceCallOverlay";
 
 interface ConsultationWorkspaceProps {
   activeConsultation: any;
@@ -53,6 +55,7 @@ export function ConsultationWorkspace({
   loadDashboardData,
   loadConsultations
 }: ConsultationWorkspaceProps) {
+  const { socket } = useSocket();
   // Form details states
   const [diseaseInput, setDiseaseInput] = useState("");
   const [severityInput, setSeverityInput] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM");
@@ -1058,29 +1061,46 @@ export function ConsultationWorkspace({
       </div>
 
       {/* FLOATING CHAT BOX POPUP WIDGET */}
-      {showFloatingChat && (
-        <div className="fixed bottom-24 right-6 w-96 max-w-[calc(100vw-2rem)] h-[480px] bg-card border border-border rounded-2xl shadow-lift z-50 flex flex-col overflow-hidden transition-all duration-200 animate-slideUp">
-          {/* Chat Header */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/10 shrink-0">
-            <div className="text-left flex items-center gap-2">
-              <div className="relative">
-                <MessageSquare className="h-4 w-4 text-emerald-600" />
-                <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-[11px] text-foreground m-0">
-                  {activeConsultation.farmerId?.name || "Farmer Client"}
-                </h3>
-                <p className="text-[8px] text-muted-foreground m-0 mt-0.5">Online</p>
-              </div>
+      <div 
+        className={`fixed bottom-24 right-6 w-96 max-w-[calc(100vw-2rem)] h-[480px] bg-card border border-border rounded-2xl shadow-lift z-50 flex flex-col overflow-hidden transition-all duration-200 ${
+          showFloatingChat ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none translate-y-4"
+        }`}
+      >
+        {/* Chat Header */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/10 shrink-0">
+          <div className="text-left flex items-center gap-2">
+            <div className="relative">
+              <MessageSquare className="h-4 w-4 text-emerald-600" />
+              <span className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
             </div>
-            
-            <button 
-              onClick={() => setShowFloatingChat(false)} 
-              className="p-1 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer"
-            >
-              <X className="h-4 w-4 text-muted-foreground" />
-            </button>
+            <div>
+              <h3 className="font-extrabold text-[11px] text-foreground m-0">
+                {activeConsultation.farmerId?.name || "Farmer Client"}
+              </h3>
+              <p className="text-[8px] text-muted-foreground m-0 mt-0.5">Online</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {activeConsultation.status !== 'COMPLETED' && (
+              <VoiceCallOverlay
+                socket={socket}
+                userId={user.id}
+                userName={user.name}
+                consultationId={activeConsultation._id}
+                recipientId={activeConsultation.farmerId?._id || activeConsultation.farmerId}
+                recipientName={activeConsultation.farmerId?.name || "Farmer Client"}
+                consultationType={activeConsultation.consultationType}
+                onIncomingCall={() => setShowFloatingChat(true)}
+              />
+            )}
+              <button 
+                onClick={() => setShowFloatingChat(false)} 
+                className="p-1 hover:bg-muted rounded-full border-0 bg-transparent cursor-pointer"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
@@ -1106,6 +1126,12 @@ export function ConsultationWorkspace({
                           const w = window.open();
                           if (w) w.document.write(`<img src="${chat.message}" style="max-width:100%; max-height:100vh; display:block; margin:auto;" />`);
                         }}
+                      />
+                    ) : chat.message?.startsWith("data:audio/") ? (
+                      <audio 
+                        controls 
+                        src={chat.message} 
+                        className="max-w-[200px] mt-1 accent-emerald-600 block outline-none text-foreground bg-transparent"
                       />
                     ) : (
                       <p className="m-0 leading-relaxed">{chat.message}</p>
@@ -1182,7 +1208,6 @@ export function ConsultationWorkspace({
             </Button>
           </div>
         </div>
-      )}
 
       {/* Lightbox Dialog */}
       {lightboxImage && (

@@ -28,7 +28,17 @@ export function TicketsTab() {
       const res = await apiFetch("/api/customer/tickets");
       if (res.ok) {
         const data = await res.json();
-        setTickets(data.tickets || []);
+        const list = data.tickets || [];
+        setTickets(list);
+
+        // Restore selected ticket from sessionStorage
+        const savedId = typeof window !== "undefined" ? sessionStorage.getItem("farmer_selected_ticket_id") : null;
+        if (savedId && (!selectedTicket || selectedTicket._id !== savedId)) {
+          const matched = list.find((t: any) => t._id === savedId);
+          if (matched) {
+            setSelectedTicket(matched);
+          }
+        }
       }
     } catch (err) {
       console.error("Error fetching tickets", err);
@@ -39,7 +49,22 @@ export function TicketsTab() {
   };
 
   useEffect(() => {
-    fetchTickets();
+    if (selectedTicket) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("farmer_selected_ticket_id", selectedTicket._id);
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("farmer_selected_ticket_id");
+      }
+    }
+  }, [selectedTicket]);
+
+  useEffect(() => {
+    const loadAndRestore = async () => {
+      await fetchTickets();
+    };
+    loadAndRestore();
   }, []);
 
   // Socket update listener

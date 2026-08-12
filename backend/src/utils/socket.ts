@@ -29,6 +29,35 @@ export const initSocket = (server: HttpServer, allowedOrigins: string[]) => {
       }
     });
 
+    // WebRTC voice calling signaling
+    socket.on('call_user', (data: { toUserId: string, offer: any, consultationId: string, callerName: string }) => {
+      io?.to(`user_${data.toUserId}`).emit('call_incoming', {
+        offer: data.offer,
+        consultationId: data.consultationId,
+        callerName: data.callerName
+      });
+    });
+
+    socket.on('answer_call', (data: { toUserId: string, answer: any, consultationId: string }) => {
+      io?.to(`user_${data.toUserId}`).emit('call_answered', {
+        answer: data.answer,
+        consultationId: data.consultationId
+      });
+    });
+
+    socket.on('ice_candidate', (data: { toUserId: string, candidate: any, consultationId: string }) => {
+      io?.to(`user_${data.toUserId}`).emit('ice_candidate', {
+        candidate: data.candidate,
+        consultationId: data.consultationId
+      });
+    });
+
+    socket.on('end_call', (data: { toUserId: string, consultationId: string }) => {
+      io?.to(`user_${data.toUserId}`).emit('call_ended', {
+        consultationId: data.consultationId
+      });
+    });
+
     socket.on('disconnect', () => {
       console.log('Socket disconnected:', socket.id);
     });

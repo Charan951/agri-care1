@@ -14,9 +14,15 @@ import uploadRoutes from './routes/uploadRoutes';
 
 dotenv.config();
 
-const app = express();
 const PORT = process.env.PORT || 5000;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/agricare';
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  console.error('Fatal Error: MONGODB_URI environment variable is not defined.');
+  process.exit(1);
+}
+
+const app = express();
 
 // Middleware Configuration
 app.use(express.json({ limit: '50mb' }));
@@ -553,11 +559,11 @@ async function autoSeedIfEmpty() {
 async function connectDB() {
   try {
     console.log(`Attempting to connect to MongoDB at ${MONGODB_URI}...`);
-    await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 3000 });
-    console.log('Successfully connected to local MongoDB.');
+    await mongoose.connect(MONGODB_URI!, { serverSelectionTimeoutMS: 3000 });
+    console.log('Successfully connected to MongoDB.');
     await autoSeedIfEmpty();
   } catch (err) {
-    console.warn('Local MongoDB connection failed. Attempting to launch in-memory MongoDB database...');
+    console.warn('MongoDB connection failed. Attempting to launch in-memory MongoDB database...');
     try {
       const { MongoMemoryServer } = await import('mongodb-memory-server');
       const mongoServer = await MongoMemoryServer.create();
@@ -567,7 +573,7 @@ async function connectDB() {
       console.log('Successfully connected to In-Memory MongoDB.');
       await autoSeedIfEmpty();
     } catch (inMemErr) {
-      console.error('Fatal: Failed to start both local and in-memory MongoDB instances:', inMemErr);
+      console.error('Fatal: Failed to connect to MongoDB and failed to start in-memory MongoDB instance:', inMemErr);
       process.exit(1);
     }
   }

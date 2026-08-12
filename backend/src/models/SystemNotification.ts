@@ -28,6 +28,7 @@ const systemNotificationSchema = new Schema<ISystemNotification>({
   createdAt: { type: Date, default: Date.now },
 });
 
+systemNotificationSchema.index({ recipientRole: 1, createdAt: -1 });
 
 export const SystemNotification = model<ISystemNotification>(
   'SystemNotification',

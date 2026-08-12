@@ -12,6 +12,8 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
+
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -109,7 +111,7 @@ export function Navbar() {
       )}
     >
       <div className="container-page flex h-16 items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 font-semibold text-foreground">
+        <Link to="/" className="flex items-center gap-2 font-semibold text-foreground notranslate">
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-brand-foreground">
             <Leaf className="h-5 w-5" />
           </span>
@@ -122,75 +124,79 @@ export function Navbar() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 lg:flex">
-          {isAuthenticated ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold hover:bg-muted">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs text-brand-foreground">
-                    {user?.name.charAt(0).toUpperCase()}
+        <div className="flex items-center gap-3">
+          <LanguageSelector />
+          
+          <div className="hidden items-center gap-2 lg:flex">
+            {isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-semibold hover:bg-muted">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-xs text-brand-foreground">
+                      {user?.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span>{user?.name}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <div className="px-2.5 py-1.5 text-xs text-muted-foreground border-b border-border mb-1">
+                    Role: <span className="font-semibold text-foreground">{user?.role}</span>
                   </div>
-                  <span>{user?.name}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <div className="px-2.5 py-1.5 text-xs text-muted-foreground border-b border-border mb-1">
-                  Role: <span className="font-semibold text-foreground">{user?.role}</span>
-                </div>
-                {(user?.role === 'ADMIN' || user?.role === 'SUPER_USER') && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/admin" className="cursor-pointer font-medium">
-                      Admin Dashboard
-                    </Link>
+                  {(user?.role === 'ADMIN' || user?.role === 'SUPER_USER') && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin" className="cursor-pointer font-medium">
+                        Admin Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {user?.role === 'FARMER' && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/dashboard" className="cursor-pointer font-medium">
+                        Farmer Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {user?.role === 'MERCHANT' && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/merchant" className="cursor-pointer font-medium">
+                        Merchant Dashboard
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-600 font-medium">
+                    Sign out
                   </DropdownMenuItem>
-                )}
-                {user?.role === 'FARMER' && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/dashboard" className="cursor-pointer font-medium">
-                      Farmer Dashboard
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-                {user?.role === 'MERCHANT' && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/merchant" className="cursor-pointer font-medium">
-                      Merchant Dashboard
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-600 font-medium">
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <>
-              <Link
-                to="/login"
-                className="rounded-md px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
-              >
-                Sign in
-              </Link>
-              <Link
-                to="/register"
-                className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90"
-              >
-                Get started
-              </Link>
-            </>
-          )}
-        </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="rounded-md px-3 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  to="/register"
+                  className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90"
+                >
+                  Get started
+                </Link>
+              </>
+            )}
+          </div>
 
-        <button
-          type="button"
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className="grid h-10 w-10 place-items-center rounded-md border border-border text-foreground lg:hidden"
-        >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+          <button
+            type="button"
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="grid h-10 w-10 place-items-center rounded-md border border-border text-foreground lg:hidden"
+          >
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {open && (

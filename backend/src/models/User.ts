@@ -4,11 +4,15 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password?: string;
-  mobile: string;
+  mobile?: string;
   role: 'ADMIN' | 'SUPER_USER' | 'AGRI_SPECIALIST' | 'MERCHANT' | 'FARMER';
   status: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
   workingRegion?: string;
   specialization?: string;
+  googleId?: string;
+  provider?: string;
+  profileImage?: string;
+  landAcres?: number;
   assignedSpecialists?: Types.ObjectId[];
   assignedFarmers?: Types.ObjectId[];
   businessName?: string;
@@ -76,8 +80,8 @@ const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    password: { type: String, required: true },
-    mobile: { type: String, required: true },
+    password: { type: String, required: false },
+    mobile: { type: String, required: false },
     role: {
       type: String,
       enum: ['ADMIN', 'SUPER_USER', 'AGRI_SPECIALIST', 'MERCHANT', 'FARMER'],
@@ -88,6 +92,10 @@ const userSchema = new Schema<IUser>(
       enum: ['ACTIVE', 'PENDING', 'SUSPENDED'],
       default: 'ACTIVE',
     },
+    googleId: { type: String, unique: true, sparse: true },
+    provider: { type: String, default: 'local' },
+    profileImage: { type: String },
+    landAcres: { type: Number, default: 0 },
     resetPasswordOtp: { type: String },
     resetPasswordOtpExpires: { type: Date },
     workingRegion: { type: String },

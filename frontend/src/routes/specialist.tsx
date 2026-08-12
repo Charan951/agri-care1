@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 
 // Tab imports
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
 import { OverviewTab } from "@/components/specialist/OverviewTab";
 import { ConsultationsTab } from "@/components/specialist/ConsultationsTab";
 import { ConsultationWorkspace } from "@/components/specialist/ConsultationWorkspace";
@@ -45,10 +46,21 @@ function SpecialistDashboard() {
   const { socket } = useSocket();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      return (sessionStorage.getItem("specialist_active_tab") as TabType) || "overview";
+    }
+    return "overview";
+  });
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>(() => {
+    const initialTab = (typeof window !== "undefined" && sessionStorage.getItem("specialist_active_tab") as TabType) || "overview";
+    return { overview: true, [initialTab]: true };
+  });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("specialist_active_tab", activeTab);
+    }
     setVisitedTabs((prev) => {
       if (prev[activeTab]) return prev;
       return { ...prev, [activeTab]: true };
@@ -70,6 +82,7 @@ function SpecialistDashboard() {
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [assignedConsultations, setAssignedConsultations] = useState<any[]>([]);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -79,7 +92,12 @@ function SpecialistDashboard() {
   const [districtFilter, setDistrictFilter] = useState("");
 
   // Active consultation workspace states
-  const [selectedConsultationId, setSelectedConsultationId] = useState<string | null>(null);
+  const [selectedConsultationId, setSelectedConsultationId] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("specialist_selected_consultation_id");
+    }
+    return null;
+  });
   const [activeConsultation, setActiveConsultation] = useState<any>(null);
   const [farmerHistory, setFarmerHistory] = useState<any[]>([]);
   const [farmerOrders, setFarmerOrders] = useState<any[]>([]);
@@ -95,9 +113,13 @@ function SpecialistDashboard() {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
 
   useEffect(() => {
-    if (!loading && (!isAuthenticated || user?.role !== "AGRI_SPECIALIST")) {
-      toast.error("Unauthorized. Please log in as an Agriculture Specialist.");
-      navigate({ to: "/login" });
+    if (!loading) {
+      if (!isAuthenticated) {
+        navigate({ to: "/login" });
+      } else if (user?.role !== "AGRI_SPECIALIST") {
+        toast.error("Unauthorized. Please log in as an Agriculture Specialist.");
+        navigate({ to: "/login" });
+      }
     }
   }, [loading, isAuthenticated, user, navigate]);
 
@@ -113,6 +135,8 @@ function SpecialistDashboard() {
       }
     } catch (err) {
       console.error("Error loading specialist statistics", err);
+    } finally {
+      setIsFirstLoad(false);
     }
   };
 
@@ -133,15 +157,35 @@ function SpecialistDashboard() {
       }
     } catch (err) {
       console.error("Error loading consultations list", err);
+    } finally {
+      setIsFirstLoad(false);
     }
   };
 
+  // Load dashboard overview data only when activeTab is overview or analytics
   useEffect(() => {
     if (isAuthenticated && user?.role === "AGRI_SPECIALIST") {
-      loadDashboardData();
-      loadConsultations();
+      if (activeTab === "overview" || activeTab === "analytics") {
+        loadDashboardData();
+      }
     }
-  }, [isAuthenticated, user, searchQuery, statusFilter, cropFilter, priorityFilter, districtFilter]);
+  }, [isAuthenticated, user, activeTab]);
+
+  // Load consultations list only when activeTab is consultations, history, or overview, or when filters change
+  useEffect(() => {
+    if (isAuthenticated && user?.role === "AGRI_SPECIALIST") {
+      if (activeTab === "consultations" || activeTab === "history" || activeTab === "overview") {
+        loadConsultations();
+      }
+    }
+  }, [isAuthenticated, user, searchQuery, statusFilter, cropFilter, priorityFilter, districtFilter, activeTab]);
+
+  // Fallback to clear loading state for static/non-fetching tabs
+  useEffect(() => {
+    if (activeTab !== "overview" && activeTab !== "analytics" && activeTab !== "consultations" && activeTab !== "history" && !selectedConsultationId) {
+      setIsFirstLoad(false);
+    }
+  }, [activeTab, selectedConsultationId]);
 
   // Socket updates
   useEffect(() => {
@@ -181,6 +225,38 @@ function SpecialistDashboard() {
       socket.off("consultation_updated", handleConsultationUpdated);
     };
   }, [socket, selectedConsultationId]);
+
+  useEffect(() => {
+    if (selectedConsultationId) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("specialist_selected_consultation_id", selectedConsultationId);
+      }
+      if (!activeConsultation || activeConsultation._id !== selectedConsultationId) {
+        apiFetch(`/api/specialist/consultations/${selectedConsultationId}`)
+          .then((res) => {
+            if (res.ok) return res.json();
+            throw new Error("Failed to fetch");
+          })
+          .then((data) => {
+            if (data) {
+              setActiveConsultation(data.consultation);
+              setFarmerHistory(data.farmerHistory);
+              setFarmerOrders(data.farmerOrders);
+            }
+          })
+          .catch((err) => {
+            console.error("Error restoring case workspace", err);
+          })
+          .finally(() => {
+            setIsFirstLoad(false);
+          });
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("specialist_selected_consultation_id");
+      }
+    }
+  }, [selectedConsultationId]);
 
   // Load Selected Consultation Workspace
   const selectConsultation = async (id: string) => {
@@ -267,7 +343,7 @@ function SpecialistDashboard() {
     }
   };
 
-  // Audio recording simulation
+  // Audio recording
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -281,8 +357,21 @@ function SpecialistDashboard() {
 
       recorder.onstop = () => {
         const audioBlob = new Blob(chunks, { type: "audio/webm" });
-        const url = URL.createObjectURL(audioBlob);
-        setChatMessage(`[Voice Note] Listening link: ${url}`);
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result as string;
+          try {
+            await apiFetch(`/api/specialist/consultations/${selectedConsultationId}/message`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: base64Audio })
+            });
+            toast.success("Voice message sent successfully!");
+          } catch (err) {
+            toast.error("Failed to send voice message.");
+          }
+        };
       };
 
       recorder.start();
@@ -319,7 +408,7 @@ function SpecialistDashboard() {
     navigate({ to: "/login" });
   };
 
-  if (loading) {
+  if (loading || isFirstLoad) {
     return (
       <div className="flex h-screen items-center justify-center bg-card text-foreground">
         <div className="flex flex-col items-center gap-4">
@@ -344,7 +433,7 @@ function SpecialistDashboard() {
       }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar">
           <div className="space-y-6">
-            <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4">
+            <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4 notranslate">
               <span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-600 text-white">
                 <Sprout className="h-5 w-5" />
               </span>
@@ -409,6 +498,17 @@ function SpecialistDashboard() {
               >
                 <BookOpen className="h-4 w-4" />
                 Agronomy Library
+              </button>
+              <button
+                onClick={() => { setActiveTab("profile"); setSelectedConsultationId(null); if (window.innerWidth < 1024) setIsDesktopSidebarOpen(false); }}
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all border-0 ${
+                  activeTab === "profile"
+                    ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-l-2 border-emerald-600 pl-2"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground bg-transparent"
+                }`}
+              >
+                <User className="h-4 w-4" />
+                Profile Settings
               </button>
             </nav>
           </div>
@@ -528,10 +628,31 @@ function SpecialistDashboard() {
             <div />
           </div>
           <div className="flex items-center gap-4">
-            <Badge variant="outline" className="bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 font-semibold gap-1.5 py-1 px-3">
-              <span className={`h-2 w-2 rounded-full ${user.status === "ACTIVE" ? "bg-emerald-500" : "bg-amber-500"}`} />
-              {user.availabilityStatus === "AVAILABLE" ? "Online & Available" : "On Leave"}
+            <Badge 
+              variant="outline" 
+              className={`font-semibold gap-1.5 py-1 px-3 border ${
+                user.availabilityStatus === "AVAILABLE"
+                  ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                  : user.availabilityStatus === "UNAVAILABLE"
+                  ? "bg-red-600/10 text-red-700 dark:text-red-400 border-red-500/20"
+                  : "bg-amber-600/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${
+                user.availabilityStatus === "AVAILABLE"
+                  ? "bg-emerald-500 animate-pulse"
+                  : user.availabilityStatus === "UNAVAILABLE"
+                  ? "bg-red-500"
+                  : "bg-amber-500"
+              }`} />
+              {user.availabilityStatus === "AVAILABLE" 
+                ? "Online & Available" 
+                : user.availabilityStatus === "UNAVAILABLE"
+                ? "Busy / Offline"
+                : "On Leave"
+              }
             </Badge>
+            <LanguageSelector />
             <div className="relative">
               <button className="relative p-2 rounded-full hover:bg-muted text-muted-foreground border-0 bg-transparent cursor-pointer">
                 <Bell className="h-5 w-5 text-foreground" />

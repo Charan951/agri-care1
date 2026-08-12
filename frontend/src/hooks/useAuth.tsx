@@ -31,6 +31,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   registerFarmer: (formData: any) => Promise<{ success: boolean; message: string }>;
   refreshProfile: () => Promise<void>;
+  googleLogin: (idToken: string) => Promise<{ success: boolean; isNewUser?: boolean; googleProfile?: any; message: string }>;
+  googleRegister: (regData: { idToken: string; name: string; mobile: string; workingRegion: string; landAcres: number }) => Promise<{ success: boolean; message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -111,6 +113,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchProfile();
   };
 
+  const googleLogin = async (idToken: string) => {
+    try {
+      const response = await apiFetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        if (data.isNewUser) {
+          return { success: true, isNewUser: true, googleProfile: data.googleProfile, message: 'Google authenticated. Onboarding details required.' };
+        } else {
+          setUser(data.user);
+          return { success: true, isNewUser: false, message: data.message || 'Logged in successfully with Google.' };
+        }
+      } else {
+        return { success: false, message: data.message || 'Failed to authenticate with Google.' };
+      }
+    } catch (error) {
+      return { success: false, message: 'Network error. Please try again.' };
+    }
+  };
+
+  const googleRegister = async (regData: { idToken: string; name: string; mobile: string; workingRegion: string; landAcres: number }) => {
+    try {
+      const response = await apiFetch('/api/auth/google/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(regData),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setUser(data.user);
+        return { success: true, message: data.message || 'Google registration completed.' };
+      } else {
+        return { success: false, message: data.message || 'Google registration failed.' };
+      }
+    } catch (error) {
+      return { success: false, message: 'Network error. Please try again.' };
+    }
+  };
+
   const value: AuthContextType = {
     user,
     loading,
@@ -123,7 +167,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     registerFarmer,
-    refreshProfile
+    refreshProfile,
+    googleLogin,
+    googleRegister
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

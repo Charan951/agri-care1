@@ -13,6 +13,7 @@ import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
 // Tab imports
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
 import { OverviewTab } from "@/components/merchant/OverviewTab";
 import { StoreTab } from "@/components/merchant/StoreTab";
 import { ProductsTab } from "@/components/merchant/ProductsTab";
@@ -59,10 +60,21 @@ function MerchantDashboard() {
   const navigate = useNavigate();
 
   // Active sub-tab state
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      return (sessionStorage.getItem("merchant_active_tab") as TabType) || "overview";
+    }
+    return "overview";
+  });
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>(() => {
+    const initialTab = (typeof window !== "undefined" && sessionStorage.getItem("merchant_active_tab") as TabType) || "overview";
+    return { overview: true, [initialTab]: true };
+  });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("merchant_active_tab", activeTab);
+    }
     setVisitedTabs((prev) => {
       if (prev[activeTab]) return prev;
       return { ...prev, [activeTab]: true };
@@ -104,10 +116,34 @@ function MerchantDashboard() {
   const [trackingForm, setTrackingForm] = useState({ carrierName: "", trackingNumber: "" });
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false);
 
+  useEffect(() => {
+    if (selectedOrder) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("merchant_selected_order_id", selectedOrder._id);
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("merchant_selected_order_id");
+      }
+    }
+  }, [selectedOrder]);
+
   const [supportForm, setSupportForm] = useState({ title: "", description: "" });
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [ticketMessage, setTicketMessage] = useState("");
+
+  useEffect(() => {
+    if (selectedTicket) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("merchant_selected_ticket_id", selectedTicket._id);
+      }
+    } else {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("merchant_selected_ticket_id");
+      }
+    }
+  }, [selectedTicket]);
 
   const [offerForm, setOfferForm] = useState<any>({
     title: "", code: "", type: "COUPON", discountPercentage: 10, minPurchaseAmount: 100, startDate: "", endDate: ""
@@ -312,9 +348,11 @@ function MerchantDashboard() {
       if (invRes.ok) setInventoryLogs(await invRes.json());
 
       const ordRes = await fetch("/api/merchant/orders");
+      let orderList: any[] = [];
       if (ordRes.ok) {
         const data = await ordRes.json();
-        setOrders(Array.isArray(data) ? data : (data.orders || []));
+        orderList = Array.isArray(data) ? data : (data.orders || []);
+        setOrders(orderList);
       }
 
       const custRes = await fetch("/api/merchant/customers");
@@ -333,7 +371,27 @@ function MerchantDashboard() {
       if (notRes.ok) setNotifications(await notRes.json());
 
       const tktRes = await fetch("/api/merchant/tickets");
-      if (tktRes.ok) setTickets(await tktRes.json());
+      let ticketList: any[] = [];
+      if (tktRes.ok) {
+        const data = await tktRes.json();
+        ticketList = data;
+        setTickets(data);
+      }
+
+      // Restore selections from sessionStorage
+      if (typeof window !== "undefined") {
+        const savedOrderId = sessionStorage.getItem("merchant_selected_order_id");
+        if (savedOrderId && (!selectedOrder || selectedOrder._id !== savedOrderId)) {
+          const matched = orderList.find((o) => o._id === savedOrderId);
+          if (matched) setSelectedOrder(matched);
+        }
+
+        const savedTicketId = sessionStorage.getItem("merchant_selected_ticket_id");
+        if (savedTicketId && (!selectedTicket || selectedTicket._id !== savedTicketId)) {
+          const matched = ticketList.find((t) => t._id === savedTicketId);
+          if (matched) setSelectedTicket(matched);
+        }
+      }
 
     } catch (err) {
       console.error("Error fetching merchant data", err);
@@ -403,49 +461,53 @@ function MerchantDashboard() {
   }, [socket, selectedTicket]);
 
   useEffect(() => {
-    if (!loading && (!isAuthenticated || user?.role !== "MERCHANT")) {
-      toast.error("Access unauthorized. Merchant accounts only.");
-      navigate({ to: "/login" });
-    } else if (isAuthenticated && user?.role === "MERCHANT") {
-      loadDashboardData();
-      setStoreProfileForm({
-        businessName: user.businessName || "",
-        gstin: user.gstin || "",
-        storeProfile: {
-          pan: user.storeProfile?.pan || "",
-          upiId: user.storeProfile?.upiId || "",
-          logoUrl: user.storeProfile?.logoUrl || "",
-          bannerUrl: user.storeProfile?.bannerUrl || "",
-          businessAddress: user.storeProfile?.businessAddress || "",
-          warehouseAddress: user.storeProfile?.warehouseAddress || "",
-          businessHours: user.storeProfile?.businessHours || "9:00 AM - 6:00 PM",
-          pickupAddress: user.storeProfile?.pickupAddress || "",
-          bankAccount: {
-            holderName: user.storeProfile?.bankAccount?.holderName || "",
-            accountNumber: user.storeProfile?.bankAccount?.accountNumber || "",
-            ifscCode: user.storeProfile?.bankAccount?.ifscCode || "",
-            bankName: user.storeProfile?.bankAccount?.bankName || ""
-          },
-          shippingSettings: {
-            shippingType: user.storeProfile?.shippingSettings?.shippingType || "FREE",
-            flatRate: user.storeProfile?.shippingSettings?.flatRate || 0,
-            freeShippingThreshold: user.storeProfile?.shippingSettings?.freeShippingThreshold || 0
-          },
-          invoiceSettings: {
-            invoicePrefix: user.storeProfile?.invoiceSettings?.invoicePrefix || "INV-",
-            invoiceNotes: user.storeProfile?.invoiceSettings?.invoiceNotes || ""
+    if (!loading) {
+      if (!isAuthenticated) {
+        navigate({ to: "/login" });
+      } else if (user?.role !== "MERCHANT") {
+        toast.error("Access unauthorized. Merchant accounts only.");
+        navigate({ to: "/login" });
+      } else {
+        loadDashboardData();
+        setStoreProfileForm({
+          businessName: user.businessName || "",
+          gstin: user.gstin || "",
+          storeProfile: {
+            pan: user.storeProfile?.pan || "",
+            upiId: user.storeProfile?.upiId || "",
+            logoUrl: user.storeProfile?.logoUrl || "",
+            bannerUrl: user.storeProfile?.bannerUrl || "",
+            businessAddress: user.storeProfile?.businessAddress || "",
+            warehouseAddress: user.storeProfile?.warehouseAddress || "",
+            businessHours: user.storeProfile?.businessHours || "9:00 AM - 6:00 PM",
+            pickupAddress: user.storeProfile?.pickupAddress || "",
+            bankAccount: {
+              holderName: user.storeProfile?.bankAccount?.holderName || "",
+              accountNumber: user.storeProfile?.bankAccount?.accountNumber || "",
+              ifscCode: user.storeProfile?.bankAccount?.ifscCode || "",
+              bankName: user.storeProfile?.bankAccount?.bankName || ""
+            },
+            shippingSettings: {
+              shippingType: user.storeProfile?.shippingSettings?.shippingType || "FREE",
+              flatRate: user.storeProfile?.shippingSettings?.flatRate || 0,
+              freeShippingThreshold: user.storeProfile?.shippingSettings?.freeShippingThreshold || 0
+            },
+            invoiceSettings: {
+              invoicePrefix: user.storeProfile?.invoiceSettings?.invoicePrefix || "INV-",
+              invoiceNotes: user.storeProfile?.invoiceSettings?.invoiceNotes || ""
+            }
           }
-        }
-      });
-      setProfileSecurityForm({
-        name: user.name || "",
-        email: user.email || "",
-        mobile: user.mobile || "",
-        currentPassword: "",
-        newPassword: ""
-      });
+        });
+        setProfileSecurityForm({
+          name: user.name || "",
+          email: user.email || "",
+          mobile: user.mobile || "",
+          currentPassword: "",
+          newPassword: ""
+        });
+      }
     }
-  }, [loading, isAuthenticated, user]);
+  }, [loading, isAuthenticated, user, activeTab]);
 
   if (loading) {
     return (
@@ -723,7 +785,7 @@ function MerchantDashboard() {
       }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar pr-1">
           <div className="space-y-5">
-            <div className="flex items-center gap-3.5 px-3 py-2 text-left">
+            <div className="flex items-center gap-3.5 px-3 py-2 text-left notranslate">
               <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-brand-foreground shadow-soft">
                 <Globe className="h-5 w-5" />
               </span>
@@ -805,6 +867,9 @@ function MerchantDashboard() {
                 <Globe className="h-4 w-4" />
               </span>
             </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <LanguageSelector />
           </div>
         </header>
 

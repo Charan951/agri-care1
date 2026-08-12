@@ -52,11 +52,7 @@ export const getSpecialistDashboardStats = async (req: AuthenticatedRequest, res
         .sort({ updatedAt: -1 })
         .limit(5),
       SystemNotification.find({
-        $or: [
-          { title: /assigned/i },
-          { title: /message/i },
-          { title: /consultation/i }
-        ]
+        recipientRole: { $in: ['ALL', 'AGRI_SPECIALIST'] }
       }).sort({ createdAt: -1 }).limit(5)
     ]);
 
@@ -201,7 +197,7 @@ export const getAssignedConsultations = async (req: AuthenticatedRequest, res: R
       .populate('reportId')
       .populate({
         path: 'farmerId',
-        select: 'name email mobile savedAddresses farms'
+        select: 'name email mobile'
       })
       .sort({ createdAt: -1 });
 
@@ -277,11 +273,14 @@ export const getConsultationDetails = async (req: AuthenticatedRequest, res: Res
     let farmerHistory: any[] = [];
     let farmerOrders: any[] = [];
     if (farmerId) {
-      farmerHistory = await Consultation.find({ farmerId, _id: { $ne: id } })
-        .populate('reportId')
-        .sort({ createdAt: -1 });
-
-      farmerOrders = await Order.find({ farmerId }).sort({ createdAt: -1 });
+      const [historyData, ordersData] = await Promise.all([
+        Consultation.find({ farmerId, _id: { $ne: id } })
+          .populate('reportId')
+          .sort({ createdAt: -1 }),
+        Order.find({ farmerId }).sort({ createdAt: -1 })
+      ]);
+      farmerHistory = historyData;
+      farmerOrders = ordersData;
     }
 
     res.json({
@@ -914,5 +913,146 @@ export const rateSpecialist = async (req: AuthenticatedRequest, res: Response): 
     res.json({ message: 'Thank you for your rating!', consultation });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Error submitting rating' });
+  }
+};
+
+export const getSpecialistsForFarmer = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const farmerRegion = req.user?.workingRegion || '';
+    
+    // Exclude specialists who are on leave (ON_LEAVE)
+    const specialists = await User.find({ 
+      role: 'AGRI_SPECIALIST', 
+      status: 'ACTIVE',
+      availabilityStatus: { $ne: 'ON_LEAVE' }
+    });
+    
+    // Find active consultations for these specialists
+    const activeConsultations = await Consultation.find({
+      specialistId: { $in: specialists.map(s => s._id) },
+      status: { $in: ['PENDING', 'ACTIVE'] }
+    });
+
+    const specialistsWithBusyState = specialists.map(specialist => {
+      const specialistConsults = activeConsultations.filter(
+        c => c.specialistId?.toString() === specialist._id.toString()
+      );
+      
+      let isBusy = specialist.availabilityStatus === 'UNAVAILABLE';
+      let busyUntil: string | null = null;
+
+      for (const consult of specialistConsults) {
+        let isCurrentlyInMeeting = false;
+        if (consult.timeSlot) {
+          try {
+            const slotTime = new Date(consult.timeSlot);
+            if (!isNaN(slotTime.getTime())) {
+              const endTime = new Date(slotTime.getTime() + 30 * 60 * 1000); // 30 minutes duration
+              const now = new Date();
+              if (now >= slotTime && now < endTime) {
+                isCurrentlyInMeeting = true;
+                busyUntil = consult.timeSlot;
+              }
+            }
+          } catch (e) {}
+        } else {
+          const lastUpdated = new Date(consult.updatedAt);
+          const diffMs = Date.now() - lastUpdated.getTime();
+          if (diffMs < 30 * 60 * 1000) {
+            isCurrentlyInMeeting = true;
+          }
+        }
+
+        if (isCurrentlyInMeeting) {
+          isBusy = true;
+          break;
+        }
+      }
+
+      return {
+        ...specialist.toObject(),
+        isBusy,
+        busyUntil
+      };
+    });
+    
+    // Sort specialists: different workingRegion comes first (Priority: other place first display)
+    specialistsWithBusyState.sort((a, b) => {
+      const aDifferent = a.workingRegion !== farmerRegion;
+      const bDifferent = b.workingRegion !== farmerRegion;
+      if (aDifferent && !bDifferent) return -1;
+      if (!aDifferent && bDifferent) return 1;
+      return 0;
+    });
+
+    res.json({ specialists: specialistsWithBusyState });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error fetching specialists' });
+  }
+};
+
+export const assignSpecialistToConsultation = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params; // consultationId
+    const { specialistId } = req.body;
+
+    if (!specialistId) {
+      res.status(400).json({ message: 'Specialist ID is required.' });
+      return;
+    }
+
+    const consultation = await Consultation.findById(id);
+    if (!consultation) {
+      res.status(404).json({ message: 'Consultation not found.' });
+      return;
+    }
+
+    // Verify it belongs to this farmer and is still pending assignment
+    if (consultation.farmerId.toString() !== req.user?._id.toString()) {
+      res.status(403).json({ message: 'Access denied.' });
+      return;
+    }
+
+    if (consultation.specialistId) {
+      res.status(400).json({ message: 'Specialist is already assigned to this consultation.' });
+      return;
+    }
+
+    const specialist = await User.findOne({ _id: specialistId, role: 'AGRI_SPECIALIST', status: 'ACTIVE' });
+    if (!specialist) {
+      res.status(404).json({ message: 'Specialist not found or not active.' });
+      return;
+    }
+
+    consultation.specialistId = specialist._id as mongoose.Types.ObjectId;
+    consultation.status = 'ACTIVE';
+    consultation.chatHistory.push({
+      senderId: specialist._id as mongoose.Types.ObjectId,
+      message: `Hello! I am Dr. ${specialist.name}, your assigned Agronomist Specialist. I have reviewed your case and I am here to help you. Let's discuss your crop issues.`,
+      timestamp: new Date()
+    });
+
+    await consultation.save();
+
+    // Link in DiseaseReport as well
+    const report = await DiseaseReport.findById(consultation.reportId);
+    if (report) {
+      report.assignedSpecialistId = specialist._id as mongoose.Types.ObjectId;
+      await report.save();
+    }
+
+    // Populate references before returning
+    await consultation.populate([
+      { path: 'specialistId', select: 'name specialization rating mobile' },
+      { path: 'reportId' }
+    ]);
+
+    emitToRoom('role_ADMIN', 'consultation_updated', { consultationId: id, status: 'ACTIVE' });
+    emitToRoom(`user_${specialist._id}`, 'new_consultation_request', { consultationId: id });
+    emitToRoom(`user_${consultation.farmerId}`, 'consultation_updated', { consultationId: id, status: 'ACTIVE' });
+
+    res.json({ message: 'Specialist assigned successfully.', consultation });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Error assigning specialist' });
   }
 };

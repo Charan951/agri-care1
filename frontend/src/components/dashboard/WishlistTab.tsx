@@ -6,9 +6,10 @@ import { toast } from "sonner";
 
 interface WishlistTabProps {
   onCartOrWishlistUpdate?: () => void;
+  isActive?: boolean;
 }
 
-export function WishlistTab({ onCartOrWishlistUpdate }: WishlistTabProps) {
+export function WishlistTab({ onCartOrWishlistUpdate, isActive }: WishlistTabProps) {
   const [wishlist, setWishlist] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,8 +31,10 @@ export function WishlistTab({ onCartOrWishlistUpdate }: WishlistTabProps) {
   const { socket } = useSocket();
 
   useEffect(() => {
-    fetchWishlist();
-  }, []);
+    if (isActive !== false) {
+      fetchWishlist();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (!socket) return;

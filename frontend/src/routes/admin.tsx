@@ -23,6 +23,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useSocket } from "@/context/SocketContext";
 import { toast } from "sonner";
 
+import { LanguageSelector } from "@/components/ui/LanguageSelector";
+
 // Tab Components
 import { OverviewTab } from "@/components/admin/OverviewTab";
 import { UserManagementTab } from "@/components/admin/UserManagementTab";
@@ -57,10 +59,21 @@ type TabType =
 function AdminDashboard() {
   const { user, loading, isAuthenticated, logout } = useAuth();
   const { socket } = useSocket();
-  const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ overview: true });
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      return (sessionStorage.getItem("admin_active_tab") as TabType) || "overview";
+    }
+    return "overview";
+  });
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>(() => {
+    const initialTab = (typeof window !== "undefined" && sessionStorage.getItem("admin_active_tab") as TabType) || "overview";
+    return { overview: true, [initialTab]: true };
+  });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("admin_active_tab", activeTab);
+    }
     setVisitedTabs((prev) => {
       if (prev[activeTab]) return prev;
       return { ...prev, [activeTab]: true };
@@ -87,9 +100,13 @@ function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (!loading && (!isAuthenticated || (user?.role !== "ADMIN" && user?.role !== "SUPER_USER"))) {
-      toast.error("Unauthorized access to admin portal.");
-      navigate({ to: "/login" });
+    if (!loading) {
+      if (!isAuthenticated) {
+        navigate({ to: "/login" });
+      } else if (user?.role !== "ADMIN" && user?.role !== "SUPER_USER") {
+        toast.error("Unauthorized access to admin portal.");
+        navigate({ to: "/login" });
+      }
     }
   }, [loading, isAuthenticated, user, navigate]);
 
@@ -197,7 +214,7 @@ function AdminDashboard() {
       }`}>
         <div className="flex flex-col justify-between h-full overflow-y-auto no-scrollbar pr-1">
           <div className="space-y-6">
-            <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4">
+            <div className="flex items-center gap-2.5 px-3 py-1 border-b border-border pb-4 notranslate">
               <span className="grid h-8.5 w-8.5 place-items-center rounded-lg bg-brand text-brand-foreground">
                 <Leaf className="h-4.5 w-4.5" />
               </span>
@@ -282,6 +299,8 @@ function AdminDashboard() {
             >
               <LogOut className="h-4.5 w-4.5" />
             </button>
+
+            <LanguageSelector />
 
             {/* Notification Bell */}
             <div className="relative">

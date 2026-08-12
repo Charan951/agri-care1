@@ -312,79 +312,10 @@ export function DetectTab({
   };
 
   const handleRequestConsultation = async (reportId: string) => {
-    try {
-      setIsPaymentProcessing(true);
-      const res = await apiFetch("/api/customer/consultations/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reportId })
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err.message || "Failed to initiate consultation payment.");
-        setIsPaymentProcessing(false);
-        return;
-      }
-
-      const orderData = await res.json();
-      await loadRazorpayScript();
-
-      const options = {
-        key: orderData.keyId,
-        amount: orderData.order.amount,
-        currency: orderData.order.currency,
-        name: "AgriCare Specialist Consultation",
-        description: "Expert Agronomist Consultation Fee",
-        order_id: orderData.order.id,
-        handler: async function (response: any) {
-          try {
-            const verifyRes = await apiFetch("/api/customer/consultations/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_signature: response.razorpay_signature,
-                reportId
-              })
-            });
-
-            if (verifyRes.ok) {
-              const verifyData = await verifyRes.json();
-              toast.success("Consultation fee paid successfully! Ticket created.");
-              setSelectedConsultation(verifyData.consultation);
-              setActiveTab("consultations");
-            } else {
-              toast.error("Payment verification failed on server.");
-            }
-          } catch (verifyErr) {
-            toast.error("Error verifying consultation payment.");
-          } finally {
-            setIsPaymentProcessing(false);
-          }
-        },
-        prefill: {
-          name: user?.name,
-          email: user?.email,
-          contact: user?.mobile
-        },
-        theme: {
-          color: "#4CAF50"
-        },
-        modal: {
-          ondismiss: function () {
-            setIsPaymentProcessing(false);
-          }
-        }
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
-    } catch (err) {
-      toast.error("Error booking consultation.");
-      setIsPaymentProcessing(false);
+    if (setAutoOpenBookingReportId) {
+      setAutoOpenBookingReportId(reportId);
     }
+    setActiveTab("consultations");
   };
 
   const handleAddToCart = async (productId: string) => {

@@ -7,9 +7,10 @@ import { toast } from "sonner";
 interface OrdersTabProps {
   selectedOrder?: any;
   setSelectedOrder?: (order: any) => void;
+  isActive?: boolean;
 }
 
-export function OrdersTab({ selectedOrder: propSelectedOrder, setSelectedOrder: propSetSelectedOrder }: OrdersTabProps = {}) {
+export function OrdersTab({ selectedOrder: propSelectedOrder, setSelectedOrder: propSetSelectedOrder, isActive }: OrdersTabProps = {}) {
   const [orders, setOrders] = useState<any[]>([]);
   const [localSelectedOrder, setLocalSelectedOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -23,7 +24,17 @@ export function OrdersTab({ selectedOrder: propSelectedOrder, setSelectedOrder: 
       const res = await apiFetch("/api/customer/orders");
       if (res.ok) {
         const data = await res.json();
-        setOrders(data.orders || []);
+        const list = data.orders || [];
+        setOrders(list);
+
+        // Restore selected order from sessionStorage
+        const savedId = typeof window !== "undefined" ? sessionStorage.getItem("farmer_selected_order_id") : null;
+        if (savedId && (!selectedOrder || selectedOrder._id !== savedId)) {
+          const matched = list.find((o: any) => o._id === savedId);
+          if (matched) {
+            setSelectedOrder(matched);
+          }
+        }
       }
     } catch (err) {
       console.error("Error loading orders", err);
@@ -52,9 +63,11 @@ export function OrdersTab({ selectedOrder: propSelectedOrder, setSelectedOrder: 
   const { socket } = useSocket();
 
   useEffect(() => {
-    fetchOrders();
-    fetchProducts();
-  }, []);
+    if (isActive !== false) {
+      fetchOrders();
+      fetchProducts();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (propSelectedOrder && orders.length > 0) {
